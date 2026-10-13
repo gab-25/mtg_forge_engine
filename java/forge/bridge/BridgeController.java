@@ -36,6 +36,9 @@ import java.util.Set;
 public class BridgeController extends PlayerControllerAi {
     private final DecisionHandler handler;
     private final Set<SpellAbility> chosenExternally = Collections.newSetFromMap(new IdentityHashMap<>());
+    // True while the AI plays an ability it chose itself: it has already picked
+    // that ability's modes and answers its own questions about it.
+    private boolean aiPlaying = false;
 
     public BridgeController(Game game, Player player, LobbyPlayer lobbyPlayer, DecisionHandler handler) {
         super(game, player, lobbyPlayer);
@@ -60,6 +63,16 @@ public class BridgeController extends PlayerControllerAi {
             result.add((Card) entity);
         }
         return result;
+    }
+
+    private boolean playingForAi(java.util.function.BooleanSupplier play) {
+        boolean outer = aiPlaying;
+        aiPlaying = true;
+        try {
+            return play.getAsBoolean();
+        } finally {
+            aiPlaying = outer;
+        }
     }
 
     private static boolean usesTargeting(SpellAbility sa) {
@@ -112,7 +125,7 @@ public class BridgeController extends PlayerControllerAi {
     @Override
     public boolean playChosenSpellAbility(SpellAbility sa) {
         if (!chosenExternally.remove(sa) || sa.isLandAbility()) {
-            return super.playChosenSpellAbility(sa);
+            return playingForAi(() -> super.playChosenSpellAbility(sa));
         }
         Zone origin = sa.getHostCard().getZone();
         // The AI pays the costs; targets go through chooseTargetsFor (below).
@@ -139,11 +152,11 @@ public class BridgeController extends PlayerControllerAi {
     public boolean playTrigger(Card host, WrappedAbility wrapper, boolean isMandatory) {
         SpellAbility sa = wrapper.getWrappedAbility();
         if (!usesTargeting(sa)) {
-            return super.playTrigger(host, wrapper, isMandatory);
+            return playingForAi(() -> super.playTrigger(host, wrapper, isMandatory));
         }
         if (sa.getApi() == ApiType.Charm || sa.hasParam("TargetingPlayer") || !sa.setupTargets()) {
             ai("playTrigger");
-            return super.playTrigger(host, wrapper, isMandatory);
+            return playingForAi(() -> super.playTrigger(host, wrapper, isMandatory));
         }
         return ComputerUtil.playNoStack(wrapper.getActivatingPlayer(), wrapper, getGame(), true);
     }
@@ -241,7 +254,7 @@ public class BridgeController extends PlayerControllerAi {
 
     @Override
     public boolean confirmAction(SpellAbility sa, PlayerActionConfirmMode mode, String message, List<String> options, Card cardToShow, Map<String, Object> params) {
-        Boolean yes = handler.confirm(player, message);
+        Boolean yes = aiPlaying ? null : handler.confirm(player, message);
         if (yes != null) {
             return yes;
         }
@@ -261,7 +274,7 @@ public class BridgeController extends PlayerControllerAi {
 
     @Override
     public List<AbilitySub> chooseModeForAbility(SpellAbility sa, List<AbilitySub> possible, int min, int num, boolean allowRepeat) {
-        List<AbilitySub> chosen = handler.chooseModes(player, sa, possible, min, num, allowRepeat);
+        List<AbilitySub> chosen = aiPlaying ? null : handler.chooseModes(player, sa, possible, min, num, allowRepeat);
         if (chosen != null) {
             return chosen;
         }

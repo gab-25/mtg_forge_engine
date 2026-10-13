@@ -98,3 +98,32 @@ def test_spells_without_legal_targets_are_not_offered(registry):
                 offered_without_target += [o["label"] for o in decision.options
                                            if o["label"].startswith("Cast Giant Growth")]
     assert offered_without_target == []
+
+
+# Forge's AI casts Izzet Charm readily (it never casts Fiery Confluence).
+IZZET_CHARMS = """
+12 Mountain
+12 Island
+36 Izzet Charm
+"""
+
+
+def test_modes_of_a_spell_forge_casts_stay_with_forge(registry):
+    """When Forge's AI casts a modal spell (a delegated priority), it has already
+    picked and targeted the modes: the client must not be asked for them."""
+    record = []
+    session = registry.create(FORMATS["modern"], 18, external_seats(IZZET_CHARMS, GREEN))
+    rng = random.Random(18)
+    while session.status in ("queued", "running"):
+        decision = registry.queue.lease(0.2, session.id)
+        if decision is None:
+            continue
+        record.append(decision)
+        if decision.seat == 0 and decision.kind == "priority":
+            registry.queue.answer(decision.id, delegate=True)
+        else:
+            registry.queue.answer(decision.id, rng.randrange(len(decision.options)))
+    assert session.status == "finished", session.error
+    cast = [e for e in session.events_since(0) if e["kind"] == "log" and "cast Izzet Charm" in e["text"]]
+    assert cast, "the AI never cast Izzet Charm: the test proves nothing"
+    assert [d.prompt for d in record if d.seat == 0 and d.kind == "mode"] == []
