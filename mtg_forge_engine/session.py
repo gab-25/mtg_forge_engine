@@ -45,6 +45,8 @@ class GameSession:
         self.seats = seats
         self.queue = queue
         self.max_turns = max_turns
+        # MAX_TURNS counts rounds in multiplayer: each player gets as many turns as in a duel.
+        self.turn_limit = max_turns * len(seats) if len(seats) > 2 else max_turns
         self.status = "queued"
         self.winner: int | None = None
         self.end_reason: str | None = None
@@ -245,7 +247,7 @@ class GameSession:
             return False
         if game.isGameOver():
             return True
-        if game.getPhaseHandler().getTurn() <= self.max_turns:
+        if game.getPhaseHandler().getTurn() <= self.turn_limit:
             return False
         self._turn_limit_hit = True
         game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)

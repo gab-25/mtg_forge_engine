@@ -36,3 +36,20 @@ def test_seat_count_inside_the_format_reaches_forge():
     # 503: the request passed validation and only lacks a running Forge.
     assert client.post("/games", json=body("commander", 4)).status_code == 503
     assert client.post("/games", json=body("modern", 2)).status_code == 503
+
+
+def session_with(fmt, count, max_turns=50):
+    import threading
+
+    from mtg_forge_engine.queue import DecisionQueue
+    from mtg_forge_engine.session import GameSession
+
+    # Never started: the constructor does not touch Forge.
+    return GameSession("t", FORMATS[fmt], 1, [None] * count, DecisionQueue(1), max_turns, threading.BoundedSemaphore(1))
+
+
+def test_turn_limit_counts_rounds_above_two_seats():
+    assert session_with("modern", 2).turn_limit == 50
+    assert session_with("commander", 2).turn_limit == 50
+    assert session_with("commander", 3).turn_limit == 150
+    assert session_with("commander", 4, max_turns=10).turn_limit == 40
