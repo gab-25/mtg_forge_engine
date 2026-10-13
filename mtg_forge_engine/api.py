@@ -54,6 +54,11 @@ class GameIn(BaseModel):
     seats: list[SeatIn] = Field(min_length=2, max_length=2)
 
 
+class DeckCheckIn(BaseModel):
+    format: str
+    decklist: str = Field(min_length=1)
+
+
 class AnswerIn(BaseModel):
     choice: int | None = None
     delegate: bool = False
@@ -108,6 +113,25 @@ def create_game(body: GameIn):
         **session.summary(),
         "seats": [{"name": seat.name, "controller": seat.controller, "unsupported_cards": build.unsupported}
                   for seat, build in zip(session.seats, builds)],
+    }
+
+
+@app.post("/decks/check")
+def check_deck(body: DeckCheckIn):
+    """What Forge makes of one decklist, without starting a game."""
+    if not jvm.is_ready():
+        raise HTTPException(503, "Forge is still loading")
+    fmt = FORMATS.get(body.format)
+    if fmt is None:
+        raise HTTPException(422, f"unknown format {body.format!r}; known: {sorted(FORMATS)}")
+    from .decks import build_deck
+
+    parsed = parse_decklist(body.decklist)
+    build = build_deck("check", parsed, commander=fmt.commander)
+    return {
+        "unresolved": build.unresolved,
+        "unsupported_cards": build.unsupported,
+        "missing_commander": fmt.commander and not parsed.commanders,
     }
 
 

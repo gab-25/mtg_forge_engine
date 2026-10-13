@@ -76,6 +76,15 @@ def test_unknown_cards_422(client):
     assert response.json()["detail"] == {"unresolved": {"A": ["Nope Card"]}}
 
 
+def test_check_deck_names_unknown_cards_without_starting_a_game(client):
+    response = client.post("/decks/check", json={"format": "modern", "decklist": "4 Lightning Bolt\n1 Nope Card"})
+    assert response.status_code == 200
+    assert response.json() == {"unresolved": ["Nope Card"], "unsupported_cards": [], "missing_commander": False}
+    response = client.post("/decks/check", json={"format": "duel_commander", "decklist": "1 Forest"})
+    assert response.json()["missing_commander"] is True
+    assert client.post("/decks/check", json={"format": "nope", "decklist": "1 Forest"}).status_code == 422
+
+
 def test_duel_commander_requires_a_commander(client):
     response = new_game(client, fmt="duel_commander",
                         seats=[{"name": "A", "decklist": "100 Mountain"}, {"name": "B", "decklist": DUEL_COMMANDER}])
