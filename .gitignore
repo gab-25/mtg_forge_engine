@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Superpowers design specs and implementation plans: working notes for the
+# session that wrote them, not part of the codebase.
+docs/superpowers/
