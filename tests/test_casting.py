@@ -59,3 +59,42 @@ def test_target_decision_shape(registry):
     target = next(d for d in record if d.kind == "target")
     assert target.prompt.startswith("Choose a target for ")
     assert all(o["label"] for o in target.options)
+
+
+def test_cards_are_never_stranded_in_the_stack_zone(registry):
+    """A spell the client cannot target (Giant Growth with no creature) must not vanish."""
+    import jpype
+
+    stack_zone = jpype.JClass("forge.game.zone.ZoneType").Stack
+    for seed in (1, 2, 11, 14):
+        session = registry.create(FORMATS["modern"], seed, external_seats(RED, GREEN))
+        rng = random.Random(seed)
+        while session.status in ("queued", "running"):
+            decision = registry.queue.lease(0.2, session.id)
+            if decision is None:
+                continue
+            if decision.kind != "priority":
+                # While targets are chosen the spell's card is already in the stack zone.
+                registry.queue.answer(decision.id, rng.randrange(len(decision.options)))
+                continue
+            game = session.game  # the game thread is parked on this decision
+            stranded = game.getCardsIn(stack_zone).size() - game.getStack().size()
+            assert stranded <= 0, f"seed {seed}: {stranded} card(s) in the Stack zone but not on the stack"
+            registry.queue.answer(decision.id, rng.randrange(len(decision.options)))
+        assert session.status == "finished", session.error
+
+
+def test_spells_without_legal_targets_are_not_offered(registry):
+    offered_without_target = []
+    for seed in (1, 2, 11, 14):
+        record = []
+        session = registry.create(FORMATS["modern"], seed, external_seats(RED, GREEN))
+        play_randomly(registry.queue, session, random.Random(seed), record=record)
+        for decision in record:
+            if decision.kind != "priority":
+                continue
+            creatures = [p for perms in decision.view["battlefield"].values() for p in perms if "power" in p]
+            if not creatures:
+                offered_without_target += [o["label"] for o in decision.options
+                                           if o["label"].startswith("Cast Giant Growth")]
+    assert offered_without_target == []

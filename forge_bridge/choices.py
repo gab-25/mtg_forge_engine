@@ -35,9 +35,20 @@ def bottom(session, seat: int, player, hand, count: int) -> list | None:
     return chosen
 
 
+def _targets_available(sa) -> bool:
+    """Whether every targeting part of the ability has enough legal targets
+    (Forge's canPlay does not check targets)."""
+    part = sa
+    while part is not None:
+        if part.usesTargeting() and part.getMinTargets() > 0 and not part.getTargetRestrictions().hasCandidates(part):
+            return False
+        part = part.getSubAbility()
+    return True
+
+
 def playable(player) -> list:
-    """What the player can do with priority right now: land plays, spells and
-    non-mana activated abilities whose costs Forge says can be paid."""
+    """What the player can do with priority right now: land plays, and spells and
+    non-mana activated abilities whose costs can be paid and whose targets exist."""
     J = jpype.JClass
     ability_util = J("forge.ai.ComputerUtilAbility")
     cost_util = J("forge.ai.ComputerUtilCost")
@@ -49,7 +60,8 @@ def playable(player) -> list:
                 continue
             sa.setActivatingPlayer(player)
             if sa.isLandAbility() or (cost_util.canPayCost(sa, player, False)
-                                      and mana_util.canPayManaCost(sa, player, 0, False)):
+                                      and mana_util.canPayManaCost(sa, player, 0, False)
+                                      and _targets_available(sa)):
                 result.append(sa)
     return result
 

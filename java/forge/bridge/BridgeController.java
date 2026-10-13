@@ -17,6 +17,8 @@ import forge.game.player.PlayerActionConfirmMode;
 import forge.game.spellability.AbilitySub;
 import forge.game.spellability.SpellAbility;
 import forge.game.trigger.WrappedAbility;
+import forge.game.zone.Zone;
+import forge.game.zone.ZoneType;
 import forge.util.collect.FCollectionView;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 
@@ -112,9 +114,15 @@ public class BridgeController extends PlayerControllerAi {
         if (!chosenExternally.remove(sa) || sa.isLandAbility()) {
             return super.playChosenSpellAbility(sa);
         }
+        Zone origin = sa.getHostCard().getZone();
         // The AI pays the costs; targets go through chooseTargetsFor (below).
-        ComputerUtil.handlePlayingSpellAbility(player, sa, SpellAbility::setupTargets);
-        return true;
+        boolean played = ComputerUtil.handlePlayingSpellAbility(player, sa, SpellAbility::setupTargets);
+        Card host = sa.getHostCard();
+        if (!played && origin != null && host.isInZone(ZoneType.Stack)) {
+            // Forge already moved the card to the stack zone before targeting failed.
+            getGame().getAction().moveTo(origin.getZoneType(), host, null, null);
+        }
+        return played;
     }
 
     @Override
@@ -211,7 +219,7 @@ public class BridgeController extends PlayerControllerAi {
     @Override
     public CardCollectionView chooseCardsToDiscardToMaximumHandSize(int numDiscard) {
         List<GameEntity> chosen = handler.chooseEntities(player, null, "Discard down to your maximum hand size",
-                entities(player.getCardsIn(forge.game.zone.ZoneType.Hand)), numDiscard, numDiscard);
+                entities(player.getCardsIn(ZoneType.Hand)), numDiscard, numDiscard);
         if (chosen == null) {
             ai("chooseCardsToDiscardToMaximumHandSize");
             return super.chooseCardsToDiscardToMaximumHandSize(numDiscard);
