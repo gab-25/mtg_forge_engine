@@ -33,6 +33,7 @@ Build another Forge release with `docker compose build --build-arg FORGE_REF=for
 |---|---|---|
 | `GET` | `/health` | `{"status":"ready","cards":N}`; 503 while loading |
 | `POST` | `/games` | `{"format","seed"?,"seats":[{"name","decklist","controller"?}]×2}` → 201 game |
+| `POST` | `/decks/check` | `{"format","decklist"}` → `{"unresolved":[…],"unsupported_cards":[…],"missing_commander"}`, no game started |
 | `GET` | `/games/{id}` | status (`queued`/`running`/`finished`/`failed`/`aborted`), turn, winner seat, end reason |
 | `GET` | `/games/{id}/events?since=N` | `{"events":[…],"next":M}` |
 | `DELETE` | `/games/{id}` | abort |
