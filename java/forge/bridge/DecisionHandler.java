@@ -11,7 +11,7 @@ import forge.game.spellability.SpellAbility;
 import java.util.List;
 
 /**
- * Implemented in Python (forge_bridge.handler). Every method may return null:
+ * Implemented in Python (mtg_forge_engine.handler). Every method may return null:
  * Forge's AI then makes the decision instead.
  */
 public interface DecisionHandler {

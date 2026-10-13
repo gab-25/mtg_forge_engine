@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Forge bridge", lifespan=lifespan)
+app = FastAPI(title="MTG Forge Engine", lifespan=lifespan)
 
 
 class SeatIn(BaseModel):

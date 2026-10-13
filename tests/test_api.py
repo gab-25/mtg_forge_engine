@@ -12,7 +12,7 @@ pytestmark = pytest.mark.jvm
 def client(forge):
     from fastapi.testclient import TestClient
 
-    from forge_bridge.api import app
+    from mtg_forge_engine.api import app
 
     with TestClient(app) as client:
         deadline = time.monotonic() + 300
@@ -107,7 +107,7 @@ def test_unknown_game_404(client):
 
 
 def test_lease_timeout_hands_the_decision_to_forge(client):
-    from forge_bridge import api
+    from mtg_forge_engine import api
 
     api.queue.timeout = 0.5
     try:

@@ -25,10 +25,10 @@ RUN mkdir -p /opt/forge/app && ln -s ../forge-gui/res /opt/forge/app/res
 WORKDIR /srv
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-install-project
-COPY forge_bridge ./forge_bridge
+COPY mtg_forge_engine ./mtg_forge_engine
 COPY tests ./tests
 RUN uv sync --frozen
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --start-period=180s \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health').status == 200 else 1)"
-CMD ["sh", "-c", "uvicorn forge_bridge.api:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "uvicorn mtg_forge_engine.api:app --host 0.0.0.0 --port ${PORT:-8080}"]

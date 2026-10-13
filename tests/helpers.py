@@ -1,11 +1,11 @@
 import time
 
-from forge_bridge.decklist import parse_decklist
+from mtg_forge_engine.decklist import parse_decklist
 
 
 def external_seats(deck_a, deck_b, names=("A", "B"), controllers=("external", "external"), commander=False):
-    from forge_bridge.decks import build_deck
-    from forge_bridge.session import SeatSpec
+    from mtg_forge_engine.decks import build_deck
+    from mtg_forge_engine.session import SeatSpec
 
     return [
         SeatSpec(names[0], build_deck(names[0], parse_decklist(deck_a), commander=commander).deck, controllers[0]),

@@ -2,9 +2,9 @@ import random
 
 import pytest
 
-from forge_bridge.formats import FORMATS
-from forge_bridge.queue import DecisionQueue
-from forge_bridge.settings import Settings
+from mtg_forge_engine.formats import FORMATS
+from mtg_forge_engine.queue import DecisionQueue
+from mtg_forge_engine.settings import Settings
 from tests.decks import GREEN, RED
 from tests.helpers import external_seats, play_randomly
 
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.jvm
 
 @pytest.fixture
 def registry(forge):
-    from forge_bridge.registry import GameRegistry
+    from mtg_forge_engine.registry import GameRegistry
 
     settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=50, game_ttl=3600, forge_home=forge)
     return GameRegistry(settings, DecisionQueue(settings.decision_timeout))
@@ -72,7 +72,7 @@ def test_bottom_follows_a_mulligan(registry):
 def test_too_many_options_delegates(registry):
     import threading
 
-    from forge_bridge.session import GameSession, Option
+    from mtg_forge_engine.session import GameSession, Option
 
     # A session whose game has not started: ask() reaches the option-count check.
     session = GameSession("t", FORMATS["modern"], 1, [], registry.queue, 50, threading.BoundedSemaphore(1))
@@ -120,7 +120,7 @@ def test_abort_ends_the_game_on_its_own_thread(registry):
 
 
 def test_game_without_a_client_is_aborted_as_orphaned(forge):
-    from forge_bridge.registry import GameRegistry
+    from mtg_forge_engine.registry import GameRegistry
 
     settings = Settings(max_concurrent_games=1, decision_timeout=30, max_turns=50, game_ttl=3600,
                         forge_home=forge, orphan_timeout=0.5)

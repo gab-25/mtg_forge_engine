@@ -1,7 +1,7 @@
 services:
-  bridge:
+  mtg-forge-engine:
     build: .
-    image: forge-bridge
+    image: mtg-forge-engine
     environment:
       MAX_CONCURRENT_GAMES: ${MAX_CONCURRENT_GAMES:-16}
       DECISION_TIMEOUT: ${DECISION_TIMEOUT:-120}

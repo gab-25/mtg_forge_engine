@@ -1,4 +1,4 @@
-from forge_bridge.decklist import parse_decklist
+from mtg_forge_engine.decklist import parse_decklist
 
 
 def test_quantities_and_names():

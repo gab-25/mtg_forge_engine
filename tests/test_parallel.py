@@ -4,9 +4,9 @@ import time
 
 import pytest
 
-from forge_bridge.formats import FORMATS
-from forge_bridge.queue import DecisionQueue
-from forge_bridge.settings import Settings
+from mtg_forge_engine.formats import FORMATS
+from mtg_forge_engine.queue import DecisionQueue
+from mtg_forge_engine.settings import Settings
 from tests.decks import GREEN, RED
 from tests.helpers import external_seats, play_randomly
 
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.jvm
 
 
 def make_registry(forge, **overrides):
-    from forge_bridge.registry import GameRegistry
+    from mtg_forge_engine.registry import GameRegistry
 
     values = dict(max_concurrent_games=8, decision_timeout=30, max_turns=50, game_ttl=3600, forge_home=forge)
     values.update(overrides)

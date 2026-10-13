@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from forge_bridge.queue import ChoiceOutOfRange, Decision, DecisionQueue, UnknownDecision
+from mtg_forge_engine.queue import ChoiceOutOfRange, Decision, DecisionQueue, UnknownDecision
 
 
 def decision(id_, game="g1", options=3):

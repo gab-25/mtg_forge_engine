@@ -2,11 +2,11 @@ import threading
 
 import pytest
 
-from forge_bridge.decklist import parse_decklist
-from forge_bridge.formats import FORMATS
-from forge_bridge.queue import DecisionQueue
-from forge_bridge.registry import unique_names
-from forge_bridge.settings import Settings
+from mtg_forge_engine.decklist import parse_decklist
+from mtg_forge_engine.formats import FORMATS
+from mtg_forge_engine.queue import DecisionQueue
+from mtg_forge_engine.registry import unique_names
+from mtg_forge_engine.settings import Settings
 from tests.decks import GREEN, RED
 
 
@@ -17,15 +17,15 @@ def test_unique_names():
 
 @pytest.fixture
 def registry(forge):
-    from forge_bridge.registry import GameRegistry
+    from mtg_forge_engine.registry import GameRegistry
 
     settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=50, game_ttl=3600, forge_home=forge)
     return GameRegistry(settings, DecisionQueue(settings.decision_timeout))
 
 
 def seats(controller_a="forge_ai", controller_b="forge_ai", deck_a=RED, deck_b=GREEN, names=("Red", "Green")):
-    from forge_bridge.decks import build_deck
-    from forge_bridge.session import SeatSpec
+    from mtg_forge_engine.decks import build_deck
+    from mtg_forge_engine.session import SeatSpec
 
     return [
         SeatSpec(names[0], build_deck(names[0], parse_decklist(deck_a), commander=False).deck, controller_a),

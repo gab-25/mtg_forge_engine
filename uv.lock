@@ -78,35 +78,6 @@ wheels = [
 ]
 
 [[package]]
-name = "forge-bridge"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "jpype1" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "jpype1", specifier = ">=1.5.2" },
-    { name = "uvicorn", specifier = ">=0.32" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "pytest", specifier = ">=8.3" },
-]
-
-[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -194,6 +165,35 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/06/e9b4c867381b0c2573e5080464586b4956de9e3b0c1f40c551f17d1052c9/jpype1-1.7.1-cp314-cp314t-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:906381e076b2dbbbbef830a7d1be7bdde4f35e59c3c058e40f1e4a36024bcde5", size = 409453, upload-time = "2026-05-06T23:54:54.866Z" },
     { url = "https://files.pythonhosted.org/packages/2f/43/c3cb7b6c82d9f901c1316d25016d18bfad0381eb55cfc960b7f999a42ef3/jpype1-1.7.1-cp314-cp314t-manylinux_2_24_i686.manylinux_2_28_i686.whl", hash = "sha256:7bef4ac17e0b0dbb96ee6afbd8878a5fa85353e3eb3eba4fe86e1df3dd62eb1b", size = 455217, upload-time = "2026-05-06T23:54:57.552Z" },
     { url = "https://files.pythonhosted.org/packages/9f/87/f5b46e288dc3a0c7c6fb02e00f68a621035fa03cac3b6b489effd4170b13/jpype1-1.7.1-cp314-cp314t-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b230c9475525b29114e6396b864c154f02f7cb041f2ac6bde006ed569e579aea", size = 439454, upload-time = "2026-05-06T23:54:59.609Z" },
+]
+
+[[package]]
+name = "mtg-forge-engine"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "jpype1" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "jpype1", specifier = ">=1.5.2" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pytest", specifier = ">=8.3" },
 ]
 
 [[package]]

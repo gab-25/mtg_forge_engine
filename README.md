@@ -1,4 +1,4 @@
-# Forge bridge
+# MTG Forge Engine
 
 [Forge](https://github.com/Card-Forge/forge) (2.0.15) as an HTTP rules engine in a Docker
 container. External agents — the Jev seats of `mtg_deck_tester` — answer each player
@@ -67,7 +67,7 @@ Event kinds: `log` (Forge's game log), `decision`, `fallback` (`reason`: `delega
 ```python
 import requests
 
-BASE = "http://forge-bridge:8080"
+BASE = "http://mtg-forge-engine:8080"
 
 def worker(choose):
     """choose(decision) -> (index, meta) or (None, meta) to let Forge decide."""
@@ -88,7 +88,7 @@ Run M such workers (threads) to have M Jev calls in flight across all open games
 ```bash
 uv sync
 uv run pytest -m "not jvm"                              # pure tests, no Forge
-docker compose run --rm --build bridge pytest -m jvm    # everything that needs Forge
+docker compose run --rm --build mtg-forge-engine pytest -m jvm    # everything that needs Forge
 ```
 
 The only Java is `java/forge/bridge/` (a `PlayerControllerAi` subclass forwarding

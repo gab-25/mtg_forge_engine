@@ -1,7 +1,7 @@
 """One game: a Forge match on its own thread, its event log and its outcome.
 
 The game thread is the only one that touches the Forge Game. Decisions for
-external seats reach ``ask`` through the Java shim (forge_bridge.handler), which
+external seats reach ``ask`` through the Java shim (mtg_forge_engine.handler), which
 blocks the game thread until a client answers.
 """
 
@@ -208,7 +208,7 @@ class GameSession:
             rp.setStartingLife(self.format.starting_life)
             rp.setPlayer(self._lobby_player(index, seat))
             registered.add(rp)
-        self._match = J("forge.game.Match")(rules, registered, f"forge-bridge {self.id}")
+        self._match = J("forge.game.Match")(rules, registered, f"mtg-forge-engine {self.id}")
         game = self._match.createGame()
         self._players = list(game.getRegisteredPlayers())
         return game

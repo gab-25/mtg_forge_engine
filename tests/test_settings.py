@@ -1,5 +1,5 @@
-from forge_bridge.formats import FORMATS
-from forge_bridge.settings import load_settings
+from mtg_forge_engine.formats import FORMATS
+from mtg_forge_engine.settings import load_settings
 
 
 def test_defaults():
