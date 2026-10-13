@@ -56,11 +56,11 @@ def _handler_class():
 
         @JOverride
         def chooseSpellAbilityToPlay(self, player):
-            return None
+            return self._guard("priority", lambda: _list(choices.priority(self.session, self.seat, player)))
 
         @JOverride
         def chooseTargetsFor(self, player, sa):
-            return None
+            return self._guard("target", lambda: _boolean(choices.targets(self.session, self.seat, player, sa)))
 
         @JOverride
         def declareAttackers(self, player, combat):
@@ -76,11 +76,13 @@ def _handler_class():
 
         @JOverride
         def confirm(self, player, message):
-            return None
+            return self._guard("confirm", lambda: _boolean(
+                choices.confirm(self.session, self.seat, str(message) if message is not None else "")))
 
         @JOverride
         def chooseModes(self, player, sa, possible, min, num, allowRepeat):
-            return None
+            return self._guard("mode", lambda: _list(choices.modes(
+                self.session, self.seat, sa, possible, int(min), int(num), bool(allowRepeat))))
 
         @JOverride
         def onAiDecision(self, player, method):
