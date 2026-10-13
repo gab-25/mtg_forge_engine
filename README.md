@@ -19,7 +19,7 @@ same Docker network as its client.
 |---|---|---|
 | `MAX_CONCURRENT_GAMES` | 16 | Games running at once; extra games wait as `queued`. |
 | `DECISION_TIMEOUT` | 120 | Seconds a leased decision may stay unanswered before Forge's AI takes it. |
-| `MAX_TURNS` | 50 | Turn limit; reaching it is a draw (`end_reason: "turn_limit"`). |
+| `MAX_TURNS` | 50 | Turn limit; reaching it is a draw (`end_reason: "turn_limit"`). Two-seat games count game turns; games of 3–4 seats count rounds (`MAX_TURNS` × seats game turns), so each player gets as many turns as in a duel. |
 | `GAME_TTL` | 3600 | Seconds an ended game stays readable. |
 | `ORPHAN_TIMEOUT` | 600 | Seconds a decision may wait for a worker to lease it; past that the client is taken as gone and the game is aborted (`end_reason: "orphaned"`). Keep it well above the queueing time of your worker pool. |
 | `JAVA_OPTS` | `-Xmx2g` | JVM options. |
@@ -32,15 +32,17 @@ Build another Forge release with `docker compose build --build-arg FORGE_REF=for
 | Method | Path | |
 |---|---|---|
 | `GET` | `/health` | `{"status":"ready","cards":N}`; 503 while loading |
-| `POST` | `/games` | `{"format","seed"?,"seats":[{"name","decklist","controller"?}]×2}` → 201 game |
+| `POST` | `/games` | `{"format","seed"?,"seats":[{"name","decklist","controller"?}]}` → 201 game; 2 seats, 2–4 for `commander` |
 | `POST` | `/decks/check` | `{"format","decklist"}` → `{"unresolved":[…],"unsupported_cards":[…],"missing_commander"}`, no game started |
-| `GET` | `/games/{id}` | status (`queued`/`running`/`finished`/`failed`/`aborted`), turn, winner seat, end reason |
+| `GET` | `/games/{id}` | status (`queued`/`running`/`finished`/`failed`/`aborted`), turn, winner seat, end reason, eliminations |
 | `GET` | `/games/{id}/events?since=N` | `{"events":[…],"next":M}` |
 | `DELETE` | `/games/{id}` | abort |
 | `GET` | `/decisions?wait=30&game=<id>` | the oldest pending decision of any game (or of `game`); 204 if none |
 | `POST` | `/decisions/{decision_id}` | `{"choice":i}` or `{"delegate":true}`, optional `"meta":{…}` |
 
-Formats: `standard`, `pioneer`, `modern`, `legacy`, `vintage`, `pauper`, `duel_commander`.
+Formats: `standard`, `pioneer`, `modern`, `legacy`, `vintage`, `pauper` (2 seats, 20 life),
+`duel_commander` (2 seats, 20 life), `commander` (2–4 seats, 40 life). Both commander formats
+apply the 21 commander damage rule. Another seat count is a 422.
 Decklists are Moxfield/MTGO text (`4 Lightning Bolt`, `Commander`/`Sideboard` headers,
 `*CMDR*`). Unknown cards: 422 `{"detail":{"unresolved":{"<seat>":[…]}}}`. Deck legality is
 not checked.
@@ -62,6 +64,21 @@ by Forge's AI and logged as a `forge_ai` event.
 Event kinds: `log` (Forge's game log), `decision`, `fallback` (`reason`: `delegate`,
 `timeout`, `withdrawn`, `orphaned`, `too_many_options`, `invalid_attack`, `invalid_block`, `error`),
 `forge_ai`, `game_over`.
+
+## Multiplayer
+
+A `commander` game seats 2–4 players, each `external` or `forge_ai`, in seat order.
+
+- The view lists every other seat under `opponents`. Each player (`you` included) has
+  `in_game` (false once they lost: their permanents leave the battlefield) and
+  `commander_damage` (`[{"commander","id","seat","damage"}]`, damage taken from each
+  commander, `seat` its owner's). `combat.attackers[].defender_seat` is the seat under attack.
+- Attack options name the defending player; block options only list the attackers
+  attacking you or your permanents; the first mulligan is free (Forge's multiplayer rule).
+- `winner` is the last seat standing. `game_over` (and `GET /games/{id}`) has
+  `eliminations`: `[{"seat","turn","reason"}]`, first eliminated first, `reason` one of
+  Forge's `LifeReachedZero`, `CommanderDamage`, `Milled`, `Poisoned`, `SpellEffect`,
+  `OpponentWon`, `Conceded`.
 
 ## Client loop
 
@@ -97,7 +114,7 @@ decisions to Python through JPype); it is compiled against Forge in the image bu
 
 ## Limitations
 
-- Two seats per game; no persistence (a restart loses every game); no auth.
+- No persistence (a restart loses every game); no auth.
 - Triggered abilities with modes or a "targeting player" get their targets from Forge's AI.
 - Binary choices (coin flips, tap or untap, odd or even) are Forge's AI: their two outcomes
   depend on the kind of choice, so they are not exposed as `confirm`.
