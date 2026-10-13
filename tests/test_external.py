@@ -89,3 +89,31 @@ def test_ended_game_releases_forge_objects(registry):
     assert session.game is None
     assert session.handlers and all(h.session is None for h in session.handlers)
     assert session.summary()["turn"] > 0
+
+
+def test_abort_ends_the_game_on_its_own_thread(registry):
+    """Forge's Game is not thread-safe: an abort from a request thread must leave
+    ending the game to the game thread."""
+    import threading
+
+    session = registry.create(FORMATS["modern"], 16, external_seats(RED, GREEN))
+    decision = registry.queue.lease(30, session.id)
+    callers = []
+
+    class RecordingGame:
+        def __init__(self, game):
+            self._real = game
+
+        def setGameOver(self, reason):
+            callers.append(threading.current_thread().name)
+            return self._real.setGameOver(reason)
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    session._game = RecordingGame(session._game)  # the game thread is parked on `decision`
+    session.abort()
+    session.join(30)
+    assert session.status == "aborted"
+    assert callers and set(callers) == {f"game-{session.id}"}
+    assert decision.answer.reason == "withdrawn"

@@ -75,11 +75,14 @@ class GameSession:
         self._thread.join(timeout)
 
     def abort(self) -> None:
+        """Called from a request thread. Forge's Game is not thread-safe, so the
+        game thread ends the game at its next decision (withdrawn decisions wake
+        it up). A game with no external seat never calls back: it is ended from
+        here, at the risk of racing Forge's AI."""
         self._abort.set()
-        game = self._game
-        if game is not None and not game.isGameOver():
-            game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)
         self.queue.withdraw_game(self.id)
+        if all(seat.controller == "forge_ai" for seat in self.seats):
+            self._end_game()
 
     @property
     def game(self):
@@ -119,7 +122,10 @@ class GameSession:
 
     def ask(self, seat: int, kind: str, prompt: str, options: list[Option]) -> int | None:
         """Blocks the game thread until the seat's client answers. None: Forge's AI decides."""
-        if not options or self._abort.is_set() or self._past_turn_limit():
+        if self._abort.is_set():
+            self._end_game()
+            return None
+        if not options or self._past_turn_limit():
             return None
         if len(options) == 1:
             return 0
@@ -153,7 +159,10 @@ class GameSession:
 
     def on_ai_decision(self, seat: int, method: str) -> None:
         self._event("forge_ai", seat, f"{method}: decided by Forge AI", {"method": method})
-        self._past_turn_limit()
+        if self._abort.is_set():
+            self._end_game()
+        else:
+            self._past_turn_limit()
 
     # --- internals --------------------------------------------------------------
 
@@ -216,6 +225,11 @@ class GameSession:
         self._game = None
         self._match = None
         self._players = []
+
+    def _end_game(self) -> None:
+        game = self._game
+        if game is not None and not game.isGameOver():
+            game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)
 
     def _past_turn_limit(self) -> bool:
         game = self._game
