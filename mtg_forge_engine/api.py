@@ -51,7 +51,7 @@ class SeatIn(BaseModel):
 class GameIn(BaseModel):
     format: str
     seed: int | None = None
-    seats: list[SeatIn] = Field(min_length=2, max_length=2)
+    seats: list[SeatIn] = Field(min_length=2, max_length=4)
 
 
 class DeckCheckIn(BaseModel):
@@ -88,11 +88,13 @@ def health(response: Response):
 
 @app.post("/games", status_code=201)
 def create_game(body: GameIn):
-    if not jvm.is_ready():
-        raise HTTPException(503, "Forge is still loading")
     fmt = FORMATS.get(body.format)
     if fmt is None:
         raise HTTPException(422, f"unknown format {body.format!r}; known: {sorted(FORMATS)}")
+    if error := fmt.seat_error(len(body.seats)):
+        raise HTTPException(422, error)
+    if not jvm.is_ready():
+        raise HTTPException(503, "Forge is still loading")
     from .decks import build_deck
 
     builds = []
