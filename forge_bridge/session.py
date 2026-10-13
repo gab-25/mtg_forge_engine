@@ -57,6 +57,9 @@ class GameSession:
         self._game = None
         self._match = None
         self._players: list = []
+        self._final_turn = 0
+        # The Python side of each external seat's Java controller.
+        self.handlers: list = []
         self._log_seen = 0
         # The turn of the last Forge log entry read: the log is read in batches.
         self._log_turn = 0
@@ -85,7 +88,7 @@ class GameSession:
     @property
     def turn(self) -> int:
         game = self._game
-        return int(game.getPhaseHandler().getTurn()) if game is not None else 0
+        return int(game.getPhaseHandler().getTurn()) if game is not None else self._final_turn
 
     def summary(self) -> dict:
         return {
@@ -172,6 +175,8 @@ class GameSession:
                 logger.exception("game %s failed", self.id)
                 self.error = f"{type(exc).__name__}: {exc}"
                 self._finish("failed")
+            finally:
+                self._release()
 
     def _create_game(self):
         J = jpype.JClass
@@ -196,7 +201,21 @@ class GameSession:
             return jpype.JClass("forge.player.GamePlayerUtil").createAiPlayer(seat.name, 0, 0, None, "Default")
         from .handler import make_handler
 
-        return jpype.JClass("forge.bridge.BridgeLobbyPlayer")(seat.name, make_handler(self, index))
+        handler = make_handler(self, index)
+        self.handlers.append(handler)
+        return jpype.JClass("forge.bridge.BridgeLobbyPlayer")(seat.name, handler)
+
+    def _release(self) -> None:
+        """Drops the Forge game. A handler (Python) and the game (Java) reference
+        each other through the JVM boundary, which neither collector can see
+        through: without this every ended game stays in the heap."""
+        if self._game is not None:
+            self._final_turn = int(self._game.getPhaseHandler().getTurn())
+        for handler in self.handlers:
+            handler.session = None
+        self._game = None
+        self._match = None
+        self._players = []
 
     def _past_turn_limit(self) -> bool:
         game = self._game

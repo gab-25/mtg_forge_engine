@@ -78,3 +78,14 @@ def test_too_many_options_delegates(registry):
     session = GameSession("t", FORMATS["modern"], 1, [], registry.queue, 50, threading.BoundedSemaphore(1))
     assert session.ask(0, "priority", "p", [Option(str(i)) for i in range(256)]) is None
     assert session.events_since(0)[-1]["payload"]["reason"] == "too_many_options"
+
+
+def test_ended_game_releases_forge_objects(registry):
+    """A Python handler and the Forge game reference each other across the JVM
+    boundary; neither garbage collector can break that cycle, so it is cut."""
+    session = registry.create(FORMATS["modern"], 15, external_seats(RED, GREEN))
+    play_randomly(registry.queue, session, random.Random(15))
+    assert session.status == "finished"
+    assert session.game is None
+    assert session.handlers and all(h.session is None for h in session.handlers)
+    assert session.summary()["turn"] > 0
