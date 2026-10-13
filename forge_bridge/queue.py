@@ -58,9 +58,15 @@ class DecisionQueue:
         self._cond = threading.Condition()
         # Insertion order is age: leases hand out the oldest first.
         self._open: dict[str, Decision] = {}
+        # Games whose decisions were withdrawn. A game thread may submit after
+        # the withdrawal (it checked for an abort just before it landed).
+        self._withdrawn: set[str] = set()
 
     def submit(self, decision: Decision) -> None:
         with self._cond:
+            if decision.game_id in self._withdrawn:
+                decision.answer = Answer(None, "withdrawn")
+                return
             self._open[decision.id] = decision
             self._cond.notify_all()
 
@@ -107,6 +113,7 @@ class DecisionQueue:
 
     def withdraw_game(self, game_id: str) -> None:
         with self._cond:
+            self._withdrawn.add(game_id)
             for decision in [d for d in self._open.values() if d.game_id == game_id]:
                 self._close(decision, Answer(None, "withdrawn"))
 

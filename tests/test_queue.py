@@ -13,7 +13,7 @@ def decision(id_, game="g1", options=3):
 
 def wait_in_thread(queue, d):
     result = {}
-    thread = threading.Thread(target=lambda: result.setdefault("answer", queue.wait(d)))
+    thread = threading.Thread(target=lambda: result.setdefault("answer", queue.wait(d)), daemon=True)
     thread.start()
     return thread, result
 
@@ -120,3 +120,15 @@ def test_withdraw_game():
     thread.join(2)
     assert result["answer"].reason == "withdrawn"
     assert q.lease(0).id == "b"
+
+
+def test_decision_submitted_after_withdrawal_is_withdrawn():
+    """An abort can land between a game thread's last check and its submit."""
+    q = DecisionQueue(timeout=5)
+    q.withdraw_game("g1")
+    d = decision("a", game="g1")
+    q.submit(d)
+    thread, result = wait_in_thread(q, d)
+    thread.join(2)
+    assert result["answer"].reason == "withdrawn"
+    assert q.lease(0) is None
