@@ -43,11 +43,23 @@ def _commanders(player) -> list[dict]:
     return [{**_card(c), "tax": 2 * int(player.getCommanderCast(c))} for c in player.getCommanders()]
 
 
+def _commander_damage(session, player) -> list[dict]:
+    """Combat damage this player has taken from each commander."""
+    return [{"commander": str(entry.getKey().getName()), "id": int(entry.getKey().getId()),
+             "seat": session.seat_of(entry.getKey().getOwner()), "damage": int(entry.getValue())}
+            for entry in player.getCommanderDamage()]
+
+
+def _seat_or_none(session, player) -> int | None:
+    return session.seat_of(player) if player is not None else None
+
+
 def player_view(session, seat: int) -> dict:
     game = session.game
     you = session.player(seat)
     phases = game.getPhaseHandler()
     seats = range(len(session.seats))
+    lost = game.getLostPlayers()
     view = {
         "format": session.format.label,
         "turn": int(phases.getTurn()),
@@ -65,6 +77,8 @@ def player_view(session, seat: int) -> dict:
             "mana_available": int(jpype.JClass("forge.ai.ComputerUtilMana").getAvailableManaEstimate(you)),
             "lands_played": int(you.getLandsPlayedThisTurn()),
             "commanders": _commanders(you),
+            "commander_damage": _commander_damage(session, you),
+            "in_game": not lost.contains(you),
         },
         "opponents": [],
         "battlefield": {},
@@ -85,6 +99,8 @@ def player_view(session, seat: int) -> dict:
             "graveyard": [_card(c) for c in player.getCardsIn(_zone("Graveyard"))],
             "exile": [_card(c, not c.isFaceDown()) for c in player.getCardsIn(_zone("Exile"))],
             "commanders": _commanders(player),
+            "commander_damage": _commander_damage(session, player),
+            "in_game": not lost.contains(player),
         })
     for item in game.getStack():
         view["stack"].append({
@@ -99,6 +115,7 @@ def player_view(session, seat: int) -> dict:
                 "id": int(a.getId()),
                 "name": str(a.getName()),
                 "defender": str(combat.getDefenderByAttacker(a)),
+                "defender_seat": _seat_or_none(session, combat.getDefenderPlayerByAttacker(a)),
                 "blocked_by": [int(b.getId()) for b in combat.getBlockers(a)],
             }
             for a in combat.getAttackers()
