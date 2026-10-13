@@ -64,6 +64,7 @@ class GameSession:
         # The turn of the last Forge log entry read: the log is read in batches.
         self._log_turn = 0
         self._turn_limit_hit = False
+        self._orphaned = False
         self._thread = threading.Thread(target=self._run, name=f"game-{game_id}", daemon=True)
 
     # --- lifecycle --------------------------------------------------------------
@@ -146,6 +147,13 @@ class GameSession:
         )
         self.queue.submit(decision)
         answer = self.queue.wait(decision)
+        if answer.reason == "orphaned":
+            # No client took the decision: nobody is playing this game any more.
+            self._orphaned = True
+            self._abort.set()
+            self.fallback(seat, kind, answer.reason)
+            self._end_game()
+            return None
         if answer.choice is None:
             self.fallback(seat, kind, answer.reason, answer.meta)
             return None
@@ -245,7 +253,9 @@ class GameSession:
 
     def _record_outcome(self) -> None:
         outcome = self._game.getOutcome() if self._game is not None else None
-        if self._abort.is_set():
+        if self._orphaned:
+            self.end_reason = "orphaned"
+        elif self._abort.is_set():
             self.end_reason = "aborted"
         elif self._turn_limit_hit:
             self.end_reason = "turn_limit"

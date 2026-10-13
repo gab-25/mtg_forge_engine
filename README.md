@@ -21,6 +21,7 @@ same Docker network as its client.
 | `DECISION_TIMEOUT` | 120 | Seconds a leased decision may stay unanswered before Forge's AI takes it. |
 | `MAX_TURNS` | 50 | Turn limit; reaching it is a draw (`end_reason: "turn_limit"`). |
 | `GAME_TTL` | 3600 | Seconds an ended game stays readable. |
+| `ORPHAN_TIMEOUT` | 600 | Seconds a decision may wait for a worker to lease it; past that the client is taken as gone and the game is aborted (`end_reason: "orphaned"`). Keep it well above the queueing time of your worker pool. |
 | `JAVA_OPTS` | `-Xmx2g` | JVM options. |
 | `PORT` | 8080 | HTTP port. |
 
@@ -58,7 +59,7 @@ minimum is reached. Everything else (mana payment, damage assignment, scry, …)
 by Forge's AI and logged as a `forge_ai` event.
 
 Event kinds: `log` (Forge's game log), `decision`, `fallback` (`reason`: `delegate`,
-`timeout`, `withdrawn`, `too_many_options`, `invalid_attack`, `invalid_block`, `error`),
+`timeout`, `withdrawn`, `orphaned`, `too_many_options`, `invalid_attack`, `invalid_block`, `error`),
 `forge_ai`, `game_over`.
 
 ## Client loop

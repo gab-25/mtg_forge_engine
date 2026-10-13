@@ -132,3 +132,14 @@ def test_decision_submitted_after_withdrawal_is_withdrawn():
     thread.join(2)
     assert result["answer"].reason == "withdrawn"
     assert q.lease(0) is None
+
+
+def test_unleased_decision_is_orphaned_after_the_orphan_timeout():
+    q = DecisionQueue(timeout=5, orphan_timeout=0.2)
+    d = decision("a")
+    q.submit(d)
+    thread, result = wait_in_thread(q, d)
+    thread.join(2)
+    assert result["answer"].choice is None and result["answer"].reason == "orphaned"
+    with pytest.raises(UnknownDecision):
+        q.answer("a", 0)

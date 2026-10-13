@@ -20,7 +20,7 @@ from .settings import load_settings
 logger = logging.getLogger(__name__)
 
 settings = load_settings()
-queue = DecisionQueue(settings.decision_timeout)
+queue = DecisionQueue(settings.decision_timeout, settings.orphan_timeout)
 registry = GameRegistry(settings, queue)
 
 

@@ -19,3 +19,8 @@ def test_formats():
     assert set(FORMATS) == {"standard", "pioneer", "modern", "legacy", "vintage", "pauper", "duel_commander"}
     assert FORMATS["duel_commander"].commander and FORMATS["duel_commander"].starting_life == 20
     assert not FORMATS["modern"].commander
+
+
+def test_orphan_timeout():
+    assert load_settings({}).orphan_timeout == 600.0
+    assert load_settings({"ORPHAN_TIMEOUT": "5"}).orphan_timeout == 5.0

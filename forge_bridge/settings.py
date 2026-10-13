@@ -12,6 +12,7 @@ class Settings:
     max_turns: int = 50
     game_ttl: float = 3600.0
     forge_home: str = "/opt/forge"
+    orphan_timeout: float = 600.0
 
 
 def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
@@ -21,4 +22,5 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         max_turns=int(env.get("MAX_TURNS", 50)),
         game_ttl=float(env.get("GAME_TTL", 3600)),
         forge_home=env.get("FORGE_HOME", "/opt/forge"),
+        orphan_timeout=float(env.get("ORPHAN_TIMEOUT", 600)),
     )

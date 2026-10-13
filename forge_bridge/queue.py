@@ -2,8 +2,9 @@
 
 A game thread submits a decision and blocks in ``wait``. A worker leases it
 (``lease``) and answers it (``answer``). Once leased, a decision that is not
-answered within ``timeout`` seconds is taken by Forge's AI. An unleased decision
-waits for a worker indefinitely.
+answered within ``timeout`` seconds is taken by Forge's AI. A decision no worker
+leases within ``orphan_timeout`` seconds means the client is gone: it is
+answered "orphaned" and the game is abandoned.
 """
 
 import threading
@@ -23,7 +24,7 @@ class ChoiceOutOfRange(Exception):
 class Answer:
     # None: Forge's AI decides.
     choice: int | None
-    # "client", "delegate", "timeout" or "withdrawn".
+    # "client", "delegate", "timeout", "withdrawn" or "orphaned".
     reason: str = "client"
     meta: dict = field(default_factory=dict)
 
@@ -37,6 +38,7 @@ class Decision:
     prompt: str
     view: dict
     options: list[dict]
+    submitted_at: float | None = None
     leased_at: float | None = None
     answer: Answer | None = None
 
@@ -53,8 +55,9 @@ class Decision:
 
 
 class DecisionQueue:
-    def __init__(self, timeout: float):
+    def __init__(self, timeout: float, orphan_timeout: float | None = None):
         self.timeout = timeout
+        self.orphan_timeout = orphan_timeout
         self._cond = threading.Condition()
         # Insertion order is age: leases hand out the oldest first.
         self._open: dict[str, Decision] = {}
@@ -67,6 +70,7 @@ class DecisionQueue:
             if decision.game_id in self._withdrawn:
                 decision.answer = Answer(None, "withdrawn")
                 return
+            decision.submitted_at = time.monotonic()
             self._open[decision.id] = decision
             self._cond.notify_all()
 
@@ -102,7 +106,14 @@ class DecisionQueue:
         with self._cond:
             while decision.answer is None:
                 if decision.leased_at is None:
-                    self._cond.wait()
+                    if self.orphan_timeout is None:
+                        self._cond.wait()
+                        continue
+                    remaining = decision.submitted_at + self.orphan_timeout - time.monotonic()
+                    if remaining <= 0:
+                        self._close(decision, Answer(None, "orphaned"))
+                        break
+                    self._cond.wait(remaining)
                     continue
                 remaining = decision.leased_at + self.timeout - time.monotonic()
                 if remaining <= 0:

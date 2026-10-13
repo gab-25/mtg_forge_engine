@@ -7,6 +7,7 @@ services:
       DECISION_TIMEOUT: ${DECISION_TIMEOUT:-120}
       MAX_TURNS: ${MAX_TURNS:-50}
       GAME_TTL: ${GAME_TTL:-3600}
+      ORPHAN_TIMEOUT: ${ORPHAN_TIMEOUT:-600}
       JAVA_OPTS: ${JAVA_OPTS:--Xmx2g}
     ports:
       # No authentication: published on localhost only.

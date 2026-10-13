@@ -117,3 +117,15 @@ def test_abort_ends_the_game_on_its_own_thread(registry):
     assert session.status == "aborted"
     assert callers and set(callers) == {f"game-{session.id}"}
     assert decision.answer.reason == "withdrawn"
+
+
+def test_game_without_a_client_is_aborted_as_orphaned(forge):
+    from forge_bridge.registry import GameRegistry
+
+    settings = Settings(max_concurrent_games=1, decision_timeout=30, max_turns=50, game_ttl=3600,
+                        forge_home=forge, orphan_timeout=0.5)
+    registry = GameRegistry(settings, DecisionQueue(settings.decision_timeout, settings.orphan_timeout))
+    session = registry.create(FORMATS["modern"], 17, external_seats(RED, GREEN))
+    session.join(30)
+    assert session.status == "aborted"
+    assert session.end_reason == "orphaned"
