@@ -1,0 +1,13 @@
+services:
+  bridge:
+    build: .
+    image: forge-bridge
+    environment:
+      MAX_CONCURRENT_GAMES: ${MAX_CONCURRENT_GAMES:-16}
+      DECISION_TIMEOUT: ${DECISION_TIMEOUT:-120}
+      MAX_TURNS: ${MAX_TURNS:-50}
+      GAME_TTL: ${GAME_TTL:-3600}
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx2g}
+    ports:
+      # No authentication: published on localhost only.
+      - "127.0.0.1:8080:8080"
