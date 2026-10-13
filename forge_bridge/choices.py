@@ -123,3 +123,121 @@ def modes(session, seat: int, sa, possible, minimum: int, num: int, allow_repeat
         if not allow_repeat:
             remaining.remove(mode)
     return chosen
+
+
+def _combat_util():
+    return jpype.JClass("forge.game.combat.CombatUtil")
+
+
+def _ai_combat():
+    return jpype.JClass("forge.ai.ComputerUtilCombat")
+
+
+def attack_facts(attacker, defender, combat, player) -> tuple[str, ...]:
+    is_player = isinstance(defender, jpype.JClass("forge.game.player.Player"))
+    damage = int(_ai_combat().damageIfUnblocked(attacker, defender, combat, False))
+    facts = [f"deals {damage} damage if unblocked"]
+    if is_player and damage >= defender.getLife():
+        facts.append("lethal if unblocked")
+    defending = defender if is_player else defender.getController()
+    blockers = [b for b in defending.getCreaturesInPlay() if _combat_util().canBlock(attacker, b)]
+    if not blockers:
+        facts.append("no creature can block it")
+        return tuple(facts)
+    facts.append("can be blocked by: " + ", ".join(card_label(b) for b in blockers))
+    killers = [b for b in blockers if _ai_combat().canDestroyAttacker(player, attacker, b, combat, False)]
+    if killers:
+        facts.append("dies if blocked by: " + ", ".join(card_label(b) for b in killers))
+    return tuple(facts)
+
+
+def block_facts(blocker, attacker, combat, player) -> tuple[str, ...]:
+    blocker_dies = _ai_combat().canDestroyBlocker(player, blocker, attacker, combat, False)
+    attacker_dies = _ai_combat().canDestroyAttacker(player, attacker, blocker, combat, False)
+    return ("your blocker dies" if blocker_dies else "your blocker survives",
+            "kills the attacker" if attacker_dies else "the attacker survives")
+
+
+def _undo(combat, cards) -> None:
+    for card in cards:
+        combat.removeFromCombat(card)
+
+
+def attackers(session, seat: int, player, combat) -> bool | None:
+    util = _combat_util()
+    available = [c for c in player.getCreaturesInPlay() if util.canAttack(c)]
+    defenders = list(combat.getDefenders())
+    declared = []
+    while True:
+        pairs = [(a, d) for a in available if a not in declared for d in defenders if util.canAttack(a, d)]
+        if not pairs:
+            break
+        options = [Option("Done (no more attackers)")] + [
+            Option(f"Attack with {card_label(a)} -> {entity_label(d, player)}", attack_facts(a, d, combat, player))
+            for a, d in pairs]
+        prompt = "Declare attackers" + (
+            f" (attacking: {', '.join(card_label(a) for a in declared)})" if declared else "")
+        choice = session.ask(seat, "attack", prompt, options)
+        if choice is None:
+            _undo(combat, declared)
+            return None
+        if choice == 0:
+            break
+        attacker, defender = pairs[choice - 1]
+        combat.addAttacker(attacker, defender)
+        declared.append(attacker)
+    if not util.validateAttackers(combat):
+        _undo(combat, declared)
+        session.fallback(seat, "attack", "invalid_attack")
+        return None
+    return True
+
+
+def blockers(session, seat: int, player, combat) -> bool | None:
+    util = _combat_util()
+    attacking = list(combat.getAttackers())
+    available = [b for b in player.getCreaturesInPlay() if util.canBlock(b, combat)]
+    declared = []
+    while True:
+        pairs = [(b, a) for b in available if b not in declared for a in attacking if util.canBlock(a, b, combat)]
+        if not pairs:
+            break
+        unblocked = jpype.JClass("java.util.ArrayList")()
+        for a in combat.getAttackersOf(player):
+            if combat.getBlockers(a).isEmpty():
+                unblocked.add(a)
+        incoming = int(_ai_combat().sumDamageIfUnblocked(unblocked, player))
+        options = [Option("Done (no more blockers)")] + [
+            Option(f"Block {card_label(a)} with {card_label(b)}", block_facts(b, a, combat, player))
+            for b, a in pairs]
+        prompt = f"Declare blockers (unblocked attackers deal {incoming}, your life {player.getLife()})"
+        choice = session.ask(seat, "block", prompt, options)
+        if choice is None:
+            _undo(combat, declared)
+            return None
+        if choice == 0:
+            break
+        blocker, attacker = pairs[choice - 1]
+        combat.addBlocker(attacker, blocker)
+        declared.append(blocker)
+    if util.validateBlocks(combat, player) is not None:
+        _undo(combat, declared)
+        session.fallback(seat, "block", "invalid_block")
+        return None
+    return True
+
+
+def entities(session, seat: int, player, title, options, minimum: int, maximum: int) -> list | None:
+    remaining = list(options)
+    chosen = []
+    title = str(title) if title else "Choose"
+    while len(chosen) < maximum and remaining:
+        can_stop = len(chosen) >= minimum
+        labels = ([Option("Done")] if can_stop else []) + [Option(entity_label(e, player)) for e in remaining]
+        choice = session.ask(seat, "choose_cards", f"{title} ({len(chosen)} chosen, {minimum}-{maximum})", labels)
+        if choice is None:
+            return None
+        if can_stop and choice == 0:
+            break
+        chosen.append(remaining.pop(choice - (1 if can_stop else 0)))
+    return chosen

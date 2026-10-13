@@ -64,15 +64,16 @@ def _handler_class():
 
         @JOverride
         def declareAttackers(self, player, combat):
-            return None
+            return self._guard("attack", lambda: _boolean(choices.attackers(self.session, self.seat, player, combat)))
 
         @JOverride
         def declareBlockers(self, player, combat):
-            return None
+            return self._guard("block", lambda: _boolean(choices.blockers(self.session, self.seat, player, combat)))
 
         @JOverride
         def chooseEntities(self, player, sa, title, options, min, max):
-            return None
+            return self._guard("choose_cards", lambda: _list(choices.entities(
+                self.session, self.seat, player, title, options, int(min), int(max))))
 
         @JOverride
         def confirm(self, player, message):
