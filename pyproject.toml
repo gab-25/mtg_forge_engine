@@ -1,0 +1,27 @@
+[project]
+name = "mtg-forge-engine"
+version = "0.1.0"
+description = "The Forge MTG rules engine over HTTP, for external agents"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "JPype1>=1.5.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mtg_forge_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["jvm: needs the Forge JVM (runs in the Docker image)"]
