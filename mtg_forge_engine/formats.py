@@ -8,6 +8,15 @@ class Format:
     label: str
     commander: bool
     starting_life: int = 20
+    # The fewest and most seats a game may have.
+    seats: tuple[int, int] = (2, 2)
+
+    def seat_error(self, count: int) -> str | None:
+        low, high = self.seats
+        if low <= count <= high:
+            return None
+        allowed = str(low) if low == high else f"{low}-{high}"
+        return f"{self.label} takes {allowed} seats, got {count}"
 
 
 FORMATS: dict[str, Format] = {
@@ -18,4 +27,5 @@ FORMATS: dict[str, Format] = {
     "vintage": Format("Vintage", False),
     "pauper": Format("Pauper", False),
     "duel_commander": Format("Duel Commander", True),
+    "commander": Format("Commander", True, starting_life=40, seats=(2, 4)),
 }

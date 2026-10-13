@@ -16,7 +16,8 @@ def test_overrides():
 
 
 def test_formats():
-    assert set(FORMATS) == {"standard", "pioneer", "modern", "legacy", "vintage", "pauper", "duel_commander"}
+    assert set(FORMATS) == {"standard", "pioneer", "modern", "legacy", "vintage", "pauper", "duel_commander",
+                            "commander"}
     assert FORMATS["duel_commander"].commander and FORMATS["duel_commander"].starting_life == 20
     assert not FORMATS["modern"].commander
 

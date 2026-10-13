@@ -45,9 +45,13 @@ class GameSession:
         self.seats = seats
         self.queue = queue
         self.max_turns = max_turns
+        # MAX_TURNS counts rounds in multiplayer: each player gets as many turns as in a duel.
+        self.turn_limit = max_turns * len(seats) if len(seats) > 2 else max_turns
         self.status = "queued"
         self.winner: int | None = None
         self.end_reason: str | None = None
+        # [{"seat", "turn", "reason"}] of the players who lost, first eliminated first.
+        self.eliminations: list[dict] = []
         self.error: str | None = None
         self.ended_at: float | None = None
         self._slots = slots
@@ -57,6 +61,8 @@ class GameSession:
         self._game = None
         self._match = None
         self._players: list = []
+        self._tracker = None
+        self._turn_cap = None
         self._final_turn = 0
         # The Python side of each external seat's Java controller.
         self.handlers: list = []
@@ -79,11 +85,20 @@ class GameSession:
         """Called from a request thread. Forge's Game is not thread-safe, so the
         game thread ends the game at its next decision (withdrawn decisions wake
         it up). A game with no external seat never calls back: it is ended from
-        here, at the risk of racing Forge's AI."""
+        here, at the risk of racing Forge's AI; so is a game whose external seats
+        have all lost."""
         self._abort.set()
         self.queue.withdraw_game(self.id)
-        if all(seat.controller == "forge_ai" for seat in self.seats):
+        if not self._external_seats_left():
             self._end_game()
+
+    def _external_seats_left(self) -> bool:
+        game = self._game
+        externals = [i for i, seat in enumerate(self.seats) if seat.controller == "external"]
+        if game is None or not externals:
+            return bool(externals)
+        lost = game.getLostPlayers()
+        return any(not lost.contains(self._players[i]) for i in externals)
 
     @property
     def game(self):
@@ -103,6 +118,7 @@ class GameSession:
             "turn": self.turn,
             "winner": self.winner,
             "end_reason": self.end_reason,
+            "eliminations": self.eliminations,
             "error": self.error,
         }
 
@@ -210,6 +226,8 @@ class GameSession:
             registered.add(rp)
         self._match = J("forge.game.Match")(rules, registered, f"mtg-forge-engine {self.id}")
         game = self._match.createGame()
+        self._tracker = J("forge.bridge.EliminationTracker")(game)
+        self._turn_cap = J("forge.bridge.TurnLimit")(game, self.turn_limit)
         self._players = list(game.getRegisteredPlayers())
         return game
 
@@ -232,6 +250,8 @@ class GameSession:
             handler.session = None
         self._game = None
         self._match = None
+        self._tracker = None
+        self._turn_cap = None
         self._players = []
 
     def _end_game(self) -> None:
@@ -245,19 +265,29 @@ class GameSession:
             return False
         if game.isGameOver():
             return True
-        if game.getPhaseHandler().getTurn() <= self.max_turns:
+        if game.getPhaseHandler().getTurn() <= self.turn_limit:
             return False
         self._turn_limit_hit = True
         game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)
         return True
 
+    def _eliminations(self) -> list[dict]:
+        tracker = self._tracker
+        if tracker is None:
+            return []
+        tracker.record()  # the last loss may have come after the last event
+        return [{"seat": self.seat_of(player), "turn": int(tracker.getTurn(player)),
+                 "reason": str(player.getOutcome().lossState)}
+                for player in tracker.getOrder()]
+
     def _record_outcome(self) -> None:
+        self.eliminations = self._eliminations()
         outcome = self._game.getOutcome() if self._game is not None else None
         if self._orphaned:
             self.end_reason = "orphaned"
         elif self._abort.is_set():
             self.end_reason = "aborted"
-        elif self._turn_limit_hit:
+        elif self._turn_limit_hit or (self._turn_cap is not None and self._turn_cap.isHit()):
             self.end_reason = "turn_limit"
         elif outcome is not None:
             self.end_reason = str(outcome.getWinCondition())
@@ -265,7 +295,7 @@ class GameSession:
                 name = str(outcome.getWinningLobbyPlayer().getName())
                 self.winner = next(i for i, seat in enumerate(self.seats) if seat.name == name)
         self._event("game_over", None, f"Game over: {self.end_reason}, winner seat {self.winner}",
-                    {"winner": self.winner, "end_reason": self.end_reason})
+                    {"winner": self.winner, "end_reason": self.end_reason, "eliminations": self.eliminations})
 
     def _finish(self, status: str) -> None:
         self.ended_at = time.monotonic()

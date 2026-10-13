@@ -207,7 +207,9 @@ def attackers(session, seat: int, player, combat) -> bool | None:
 
 def blockers(session, seat: int, player, combat) -> bool | None:
     util = _combat_util()
-    attacking = list(combat.getAttackers())
+    # Only attackers attacking this player, or its planeswalkers and battles:
+    # CombatUtil.canBlock does not check the defender.
+    attacking = [a for a in combat.getAttackers() if player.equals(combat.getDefenderPlayerByAttacker(a))]
     available = [b for b in player.getCreaturesInPlay() if util.canBlock(b, combat)]
     declared = []
     while True:
