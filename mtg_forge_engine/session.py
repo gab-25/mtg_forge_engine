@@ -50,6 +50,8 @@ class GameSession:
         self.status = "queued"
         self.winner: int | None = None
         self.end_reason: str | None = None
+        # [{"seat", "turn", "reason"}] of the players who lost, first eliminated first.
+        self.eliminations: list[dict] = []
         self.error: str | None = None
         self.ended_at: float | None = None
         self._slots = slots
@@ -59,6 +61,7 @@ class GameSession:
         self._game = None
         self._match = None
         self._players: list = []
+        self._tracker = None
         self._final_turn = 0
         # The Python side of each external seat's Java controller.
         self.handlers: list = []
@@ -105,6 +108,7 @@ class GameSession:
             "turn": self.turn,
             "winner": self.winner,
             "end_reason": self.end_reason,
+            "eliminations": self.eliminations,
             "error": self.error,
         }
 
@@ -212,6 +216,7 @@ class GameSession:
             registered.add(rp)
         self._match = J("forge.game.Match")(rules, registered, f"mtg-forge-engine {self.id}")
         game = self._match.createGame()
+        self._tracker = J("forge.bridge.EliminationTracker")(game)
         self._players = list(game.getRegisteredPlayers())
         return game
 
@@ -234,6 +239,7 @@ class GameSession:
             handler.session = None
         self._game = None
         self._match = None
+        self._tracker = None
         self._players = []
 
     def _end_game(self) -> None:
@@ -253,7 +259,17 @@ class GameSession:
         game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)
         return True
 
+    def _eliminations(self) -> list[dict]:
+        tracker = self._tracker
+        if tracker is None:
+            return []
+        tracker.record()  # the last loss may have come after the last event
+        return [{"seat": self.seat_of(player), "turn": int(tracker.getTurn(player)),
+                 "reason": str(player.getOutcome().lossState)}
+                for player in tracker.getOrder()]
+
     def _record_outcome(self) -> None:
+        self.eliminations = self._eliminations()
         outcome = self._game.getOutcome() if self._game is not None else None
         if self._orphaned:
             self.end_reason = "orphaned"
@@ -267,7 +283,7 @@ class GameSession:
                 name = str(outcome.getWinningLobbyPlayer().getName())
                 self.winner = next(i for i, seat in enumerate(self.seats) if seat.name == name)
         self._event("game_over", None, f"Game over: {self.end_reason}, winner seat {self.winner}",
-                    {"winner": self.winner, "end_reason": self.end_reason})
+                    {"winner": self.winner, "end_reason": self.end_reason, "eliminations": self.eliminations})
 
     def _finish(self, status: str) -> None:
         self.ended_at = time.monotonic()

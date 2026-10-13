@@ -37,3 +37,22 @@ Deck
 1 Goblin Guide
 97 Mountain
 """
+
+# Legality is not checked, so the pod deck may run more than one copy of a card.
+COMMANDER = """
+Commander
+1 Krenko, Mob Boss
+
+Deck
+39 Mountain
+6 Goblin Guide
+6 Monastery Swiftspear
+6 Lightning Bolt
+6 Lava Spike
+6 Rift Bolt
+6 Keldon Marauders
+6 Mogg Fanatic
+6 Bloodghast
+6 Fiery Confluence
+6 Faithless Looting
+"""

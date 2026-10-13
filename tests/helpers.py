@@ -25,3 +25,13 @@ def play_randomly(queue, session, rng, *, record=None, timeout=300):
             record.append(decision)
         queue.answer(decision.id, rng.randrange(len(decision.options)))
     return session
+
+
+def pod_seats(count, decklist, controller="external"):
+    """A Commander pod of `count` seats named A, B, C, D, all playing `decklist`."""
+    from mtg_forge_engine.decks import build_deck
+    from mtg_forge_engine.session import SeatSpec
+
+    names = "ABCD"[:count]
+    return [SeatSpec(name, build_deck(name, parse_decklist(decklist), commander=True).deck, controller)
+            for name in names]
