@@ -62,6 +62,7 @@ class GameSession:
         self._match = None
         self._players: list = []
         self._tracker = None
+        self._turn_cap = None
         self._final_turn = 0
         # The Python side of each external seat's Java controller.
         self.handlers: list = []
@@ -84,11 +85,20 @@ class GameSession:
         """Called from a request thread. Forge's Game is not thread-safe, so the
         game thread ends the game at its next decision (withdrawn decisions wake
         it up). A game with no external seat never calls back: it is ended from
-        here, at the risk of racing Forge's AI."""
+        here, at the risk of racing Forge's AI; so is a game whose external seats
+        have all lost."""
         self._abort.set()
         self.queue.withdraw_game(self.id)
-        if all(seat.controller == "forge_ai" for seat in self.seats):
+        if not self._external_seats_left():
             self._end_game()
+
+    def _external_seats_left(self) -> bool:
+        game = self._game
+        externals = [i for i, seat in enumerate(self.seats) if seat.controller == "external"]
+        if game is None or not externals:
+            return bool(externals)
+        lost = game.getLostPlayers()
+        return any(not lost.contains(self._players[i]) for i in externals)
 
     @property
     def game(self):
@@ -217,6 +227,7 @@ class GameSession:
         self._match = J("forge.game.Match")(rules, registered, f"mtg-forge-engine {self.id}")
         game = self._match.createGame()
         self._tracker = J("forge.bridge.EliminationTracker")(game)
+        self._turn_cap = J("forge.bridge.TurnLimit")(game, self.turn_limit)
         self._players = list(game.getRegisteredPlayers())
         return game
 
@@ -240,6 +251,7 @@ class GameSession:
         self._game = None
         self._match = None
         self._tracker = None
+        self._turn_cap = None
         self._players = []
 
     def _end_game(self) -> None:
@@ -275,7 +287,7 @@ class GameSession:
             self.end_reason = "orphaned"
         elif self._abort.is_set():
             self.end_reason = "aborted"
-        elif self._turn_limit_hit:
+        elif self._turn_limit_hit or (self._turn_cap is not None and self._turn_cap.isHit()):
             self.end_reason = "turn_limit"
         elif outcome is not None:
             self.end_reason = str(outcome.getWinCondition())

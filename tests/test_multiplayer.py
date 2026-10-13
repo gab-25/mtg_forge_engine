@@ -145,3 +145,84 @@ def test_first_mulligan_is_free_in_a_pod(registry):
     assert len(mulligans) == 2
     assert mulligans[1].options[0]["label"] == "Keep this hand"  # nothing to put on the bottom
     assert len(mulligans[1].view["you"]["hand"]) == 7
+
+
+def small_cap_registry(forge, max_turns):
+    from mtg_forge_engine.registry import GameRegistry
+
+    settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=max_turns, game_ttl=3600,
+                        forge_home=forge)
+    return GameRegistry(settings, DecisionQueue(settings.decision_timeout))
+
+
+# Instants only: seat 0 gets priority in the other players' turns.
+BOLTS = """
+Commander
+1 Krenko, Mob Boss
+
+Deck
+40 Mountain
+59 Lightning Bolt
+"""
+
+
+def mixed_pod():
+    """Seat 0 external, the rest Forge's AI."""
+    return pod_seats(1, BOLTS) + pod_seats(4, COMMANDER, controller="forge_ai")[1:]
+
+
+def eliminate_seat_0(registry, session):
+    """Gives seat 0 lethal commander damage while it holds priority in another player's
+    turn with an empty stack, so that it loses where a real game would let it: at the
+    next state check, with the active player next to receive priority. (Forge's priority
+    loop spins forever when the active player, or whoever must get priority back, has
+    left the game.)"""
+    while session.status in ("queued", "running"):
+        decision = registry.queue.lease(0.2, session.id)
+        if decision is None:
+            continue
+        view = decision.view
+        if decision.kind == "priority" and view["active_seat"] != 0 and not view["stack"]:
+            session.player(0).addCommanderDamage(list(session.player(1).getCommanders())[0], 21)
+            registry.queue.answer(decision.id, 0)
+            return
+        # Play lands, so that it has instants to cast in other players' turns.
+        lands = [o["index"] for o in decision.options if o["label"].startswith("Play ")]
+        registry.queue.answer(decision.id, lands[0] if lands else 0)
+    raise AssertionError(f"seat 0 never held priority in another player's turn (turn {session.turn})")
+
+
+def test_turn_cap_holds_without_external_seats(forge):
+    """Forge's AI never calls back into Python: the cap must not depend on it."""
+    registry = small_cap_registry(forge, 3)
+    session = registry.create(FORMATS["modern"], 7, [*pod_seats(2, COMMANDER, controller="forge_ai")])
+    session.join(300)
+    assert session.end_reason == "turn_limit"
+    assert session.turn <= 4
+
+
+def test_turn_cap_holds_after_the_external_seat_is_eliminated(forge):
+    registry = small_cap_registry(forge, 4)  # 16 game turns for 4 seats
+    session = registry.create(FORMATS["commander"], 23, mixed_pod())
+    eliminate_seat_0(registry, session)
+    session.join(300)
+    assert session.eliminations[0]["seat"] == 0
+    assert session.end_reason == "turn_limit"
+    assert session.turn <= 17
+
+
+def test_abort_ends_a_game_whose_external_seats_are_gone(forge):
+    import time
+
+    registry = small_cap_registry(forge, 50)
+    session = registry.create(FORMATS["commander"], 24, mixed_pod())
+    eliminate_seat_0(registry, session)
+    deadline = time.monotonic() + 60
+    while session.game is not None and session.game.getLostPlayers().isEmpty():
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    turn = session.turn
+    session.abort()
+    session.join(60)
+    assert session.status == "aborted"
+    assert session.turn <= turn + 1
