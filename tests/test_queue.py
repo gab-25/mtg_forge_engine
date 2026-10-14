@@ -40,6 +40,15 @@ def test_lease_waits_for_a_submission():
     assert q.lease(2).id == "a"
 
 
+def test_close_ends_pending_long_polls():
+    q = DecisionQueue(timeout=5)
+    threading.Timer(0.1, q.close).start()
+    start = time.monotonic()
+    assert q.lease(30) is None
+    assert time.monotonic() - start < 2
+    assert q.lease(30) is None
+
+
 def test_answer_wakes_the_game_thread():
     q = DecisionQueue(timeout=5)
     d = decision("a")

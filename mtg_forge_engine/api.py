@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     anyio.to_thread.current_default_thread_limiter().total_tokens = 256
     threading.Thread(target=_boot, name="forge-boot", daemon=True).start()
     yield
+    # Long-polls would otherwise keep their threads, and the process, alive for up to a minute.
+    queue.close()
 
 
 app = FastAPI(title="MTG Forge Engine", lifespan=lifespan)

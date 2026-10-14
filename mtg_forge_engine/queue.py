@@ -64,6 +64,7 @@ class DecisionQueue:
         # Games whose decisions were withdrawn. A game thread may submit after
         # the withdrawal (it checked for an abort just before it landed).
         self._withdrawn: set[str] = set()
+        self._closed = False
 
     def submit(self, decision: Decision) -> None:
         with self._cond:
@@ -84,7 +85,7 @@ class DecisionQueue:
                         self._cond.notify_all()
                         return decision
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or self._closed:
                     return None
                 self._cond.wait(remaining)
 
@@ -127,6 +128,12 @@ class DecisionQueue:
             self._withdrawn.add(game_id)
             for decision in [d for d in self._open.values() if d.game_id == game_id]:
                 self._close(decision, Answer(None, "withdrawn"))
+
+    def close(self) -> None:
+        """Ends pending and future long-polls at once, for server shutdown."""
+        with self._cond:
+            self._closed = True
+            self._cond.notify_all()
 
     def _close(self, decision: Decision, answer: Answer) -> None:
         decision.answer = answer

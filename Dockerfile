@@ -31,4 +31,4 @@ RUN uv sync --frozen
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --start-period=180s \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health').status == 200 else 1)"
-CMD ["sh", "-c", "uvicorn mtg_forge_engine.api:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "exec uvicorn mtg_forge_engine.api:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-graceful-shutdown 5"]

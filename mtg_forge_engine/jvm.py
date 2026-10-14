@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 
 import jpype
+import jpype.config
 
 _lock = threading.Lock()
 _ready = threading.Event()
@@ -24,7 +25,10 @@ def start(forge_home: str) -> None:
         if not jar.is_file():
             raise FileNotFoundError(f"{jar} not found: Forge is only installed in the Docker image")
         options = shlex.split(os.environ.get("JAVA_OPTS", "-Xmx2g"))
-        options += ["-Djava.awt.headless=true", "-Djava.util.Arrays.useLegacyMergeSort=true"]
+        # -Xrs leaves SIGTERM/SIGINT to uvicorn for a graceful shutdown; the JVM is then not
+        # destroyed at exit, which would wait forever on Forge's non-daemon threads.
+        options += ["-Xrs", "-Djava.awt.headless=true", "-Djava.util.Arrays.useLegacyMergeSort=true"]
+        jpype.config.destroy_jvm = False
         # Forge resolves res/ relative to the working directory.
         os.chdir(home / "app")
         jpype.startJVM(*options, classpath=[str(jar), str(home / "bridge")], convertStrings=True)
