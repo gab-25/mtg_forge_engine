@@ -11,6 +11,7 @@ import jpype
 from jpype import JImplements, JOverride
 
 from . import choices
+from .labels import ability_label
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,13 @@ def _handler_class():
         def chooseModes(self, player, sa, possible, min, num, allowRepeat):
             return self._guard("mode", lambda: _list(choices.modes(
                 self.session, self.seat, sa, possible, int(min), int(num), bool(allowRepeat))))
+
+        @JOverride
+        def onPlayFailed(self, player, sa, reason):
+            try:
+                self.session.play_failed(self.seat, ability_label(sa), str(reason))
+            except Exception:
+                logger.exception("game %s seat %s: play_failed failed", self.session.id, self.seat)
 
         @JOverride
         def onAiDecision(self, player, method):

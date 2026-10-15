@@ -181,6 +181,12 @@ class GameSession:
         self._event("fallback", seat, f"{kind}: decided by Forge AI ({reason})",
                     {"kind": kind, "reason": reason, **(meta or {})})
 
+    def play_failed(self, seat: int, ability: str, reason: str) -> None:
+        """A play the seat's client chose that Forge did not carry out: the same
+        priority decision comes next."""
+        self._event("play_failed", seat, f"{ability}: not played ({reason})",
+                    {"ability": ability, "reason": reason})
+
     def on_ai_decision(self, seat: int, method: str) -> None:
         self._event("forge_ai", seat, f"{method}: decided by Forge AI", {"method": method})
         if self._abort.is_set():

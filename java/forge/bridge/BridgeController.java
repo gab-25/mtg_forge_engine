@@ -128,12 +128,21 @@ public class BridgeController extends PlayerControllerAi {
             return playingForAi(() -> super.playChosenSpellAbility(sa));
         }
         Zone origin = sa.getHostCard().getZone();
+        // How far the play went, to say why it failed: modes, then targets, then costs.
+        boolean[] targeting = {false};
+        boolean[] targeted = {false};
         // The AI pays the costs; targets go through chooseTargetsFor (below).
-        boolean played = ComputerUtil.handlePlayingSpellAbility(player, sa, SpellAbility::setupTargets);
+        boolean played = ComputerUtil.handlePlayingSpellAbility(player, sa, s -> {
+            targeting[0] = true;
+            targeted[0] = s.setupTargets() && s.isTargetNumberValid();
+        });
         Card host = sa.getHostCard();
         if (!played && origin != null && host.isInZone(ZoneType.Stack)) {
             // Forge already moved the card to the stack zone before targeting failed.
             getGame().getAction().moveTo(origin.getZoneType(), host, null, null);
+        }
+        if (!played) {
+            handler.onPlayFailed(player, sa, !targeting[0] ? "modes" : !targeted[0] ? "targets" : "costs");
         }
         return played;
     }

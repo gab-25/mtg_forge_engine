@@ -61,9 +61,16 @@ Kinds: `mulligan`, `bottom`, `priority`, `target`, `attack`, `block`, `choose_ca
 minimum is reached. Everything else (mana payment, damage assignment, scry, …) is decided
 by Forge's AI and logged as a `forge_ai` event.
 
+A priority decision offers only what can be played: land plays, and spells and abilities
+whose costs can be paid and whose targets exist, a spell that targets the stack (Stifle,
+Spell Snare, …) included. A `target` option is a player, a card, or a spell or ability on
+the stack (`Lightning Bolt deals 3 damage to … (Lightning Bolt #12, B's, on the stack)`).
+
 Event kinds: `log` (Forge's game log), `decision`, `fallback` (`reason`: `delegate`,
 `timeout`, `withdrawn`, `orphaned`, `too_many_options`, `invalid_attack`, `invalid_block`, `error`),
-`forge_ai`, `game_over`.
+`play_failed` (a spell or ability the client chose that Forge did not play, so the same
+priority decision comes back: `payload.ability` is its label, `payload.reason` is `modes`,
+`targets` or `costs`), `forge_ai`, `game_over`.
 
 ## Multiplayer
 

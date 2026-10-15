@@ -34,6 +34,9 @@ public interface DecisionHandler {
 
     List<AbilitySub> chooseModes(Player player, SpellAbility sa, List<AbilitySub> possible, int min, int num, boolean allowRepeat);
 
+    /** A spell or ability the client chose was not played; reason: "modes", "targets" or "costs". */
+    void onPlayFailed(Player player, SpellAbility sa, String reason);
+
     /** Called whenever Forge's AI makes a decision for this player that is worth logging. */
     void onAiDecision(Player player, String method);
 }

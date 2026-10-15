@@ -30,3 +30,16 @@ def ability_label(sa) -> str:
     if sa.isSpell():
         return f"Cast {name} for {sa.getPayCosts().toSimpleString()}: {sa.getDescription()}"
     return f"Activate {name}: {sa.getDescription()}"
+
+
+def stack_item_label(sa, viewer) -> str:
+    controller = sa.getActivatingPlayer()
+    whose = "your" if controller is not None and controller.equals(viewer) else f"{controller.getName()}'s"
+    return f"{sa.getStackDescription()} ({card_label(sa.getHostCard())}, {whose}, on the stack)"
+
+
+def target_label(target, viewer) -> str:
+    """A target: a player, a card, or a spell or ability on the stack."""
+    if isinstance(target, jpype.JClass("forge.game.spellability.SpellAbility")):
+        return stack_item_label(target, viewer)
+    return entity_label(target, viewer)
