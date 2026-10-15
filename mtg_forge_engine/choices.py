@@ -7,7 +7,7 @@ hands the decision to Forge's AI. Multi-selects ask one pick at a time, with a
 
 import jpype
 
-from .labels import ability_label, card_label, entity_label
+from .labels import ability_label, card_label, entity_label, target_label
 from .session import Option
 
 
@@ -35,13 +35,44 @@ def bottom(session, seat: int, player, hand, count: int) -> list | None:
     return chosen
 
 
+def _targets_stack(restrictions) -> bool:
+    return restrictions.getZone().contains(_zone("Stack"))
+
+
+def _stack_candidates(sa) -> list:
+    """The spells and abilities on the stack ``sa`` can target, as Forge's own UI
+    lists them: its candidate lists hold players and cards only."""
+    return [si.getSpellAbility() for si in sa.getHostCard().getGame().getStack()
+            if sa.canTargetSpellAbility(si.getSpellAbility())]
+
+
+def _candidates(sa) -> list:
+    """Every legal target of ``sa``: players, cards and, for a spell that targets
+    the stack, the spells and abilities on it (not their cards)."""
+    restrictions = sa.getTargetRestrictions()
+    candidates = list(restrictions.getAllCandidates(sa, False))
+    if _targets_stack(restrictions):
+        on_stack = [c for c in candidates
+                    if isinstance(c, jpype.JClass("forge.game.card.Card")) and c.isInZone(_zone("Stack"))]
+        candidates = [c for c in candidates if c not in on_stack]
+        candidates += _stack_candidates(sa)
+    return candidates
+
+
 def _targets_available(sa) -> bool:
     """Whether every targeting part of the ability has enough legal targets
-    (Forge's canPlay does not check targets)."""
+    (Forge's canPlay does not check targets). Forge's hasCandidates always says
+    yes for a spell that targets the stack (Stifle, Spell Snare…): those are
+    counted here."""
     part = sa
     while part is not None:
-        if part.usesTargeting() and part.getMinTargets() > 0 and not part.getTargetRestrictions().hasCandidates(part):
-            return False
+        if part.usesTargeting() and part.getMinTargets() > 0:
+            restrictions = part.getTargetRestrictions()
+            if _targets_stack(restrictions):
+                if len(_candidates(part)) < part.getMinTargets():
+                    return False
+            elif not restrictions.hasCandidates(part):
+                return False
         part = part.getSubAbility()
     return True
 
@@ -94,12 +125,12 @@ def targets(session, seat: int, player, sa) -> bool | None:
     source = card_label(sa.getHostCard())
     while not sa.isMaxTargetChosen():
         chosen = sa.getTargets()
-        candidates = [c for c in restrictions.getAllCandidates(sa, False) if not chosen.contains(c)]
+        candidates = [c for c in _candidates(sa) if not chosen.contains(c)]
         if not candidates:
             break
         can_stop = bool(sa.isMinTargetChosen())
         options = ([Option("Done (no more targets)")] if can_stop else []) + [
-            Option(entity_label(c, player)) for c in candidates]
+            Option(target_label(c, player)) for c in candidates]
         prompt = (f"Choose a target for {source}: {sa.getDescription()} "
                   f"({chosen.size()} chosen, {sa.getMinTargets()}-{sa.getMaxTargets()})")
         choice = session.ask(seat, "target", prompt, options)

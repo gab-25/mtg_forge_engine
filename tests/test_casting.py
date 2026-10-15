@@ -127,3 +127,58 @@ def test_modes_of_a_spell_forge_casts_stay_with_forge(registry):
     cast = [e for e in session.events_since(0) if e["kind"] == "log" and "cast Izzet Charm" in e["text"]]
     assert cast, "the AI never cast Izzet Charm: the test proves nothing"
     assert [d.prompt for d in record if d.seat == 0 and d.kind == "mode"] == []
+
+
+COUNTERSPELLS = """
+24 Island
+4 Stifle
+4 Spell Snare
+4 Force Spike
+4 Counterspell
+4 Mana Leak
+4 Tale's End
+4 Remand
+4 Mental Misstep
+4 Essence Scatter
+"""
+
+
+def test_spells_that_target_the_stack_are_offered_and_cast_on_what_is_there(forge):
+    """Forge's hasCandidates says yes to every spell that targets the stack: Stifle
+    with nothing on it was offered, its cast aborted and the same decision came
+    back, forever. Stack targets are now listed like Forge's UI lists them."""
+    from mtg_forge_engine.registry import GameRegistry
+
+    settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=12, game_ttl=3600, forge_home=forge)
+    registry = GameRegistry(settings, DecisionQueue(settings.decision_timeout))
+    offered_on_empty_stack, events = [], []
+    for seed in (5, 6, 7):
+        session = registry.create(FORMATS["modern"], seed, external_seats(COUNTERSPELLS, GREEN))
+        rng = random.Random(seed)
+        last, repeats = None, 0
+        while session.status in ("queued", "running"):
+            decision = registry.queue.lease(0.2, session.id)
+            if decision is None:
+                continue
+            seen = (decision.seat, decision.kind, decision.prompt, [o["label"] for o in decision.options])
+            repeats = repeats + 1 if seen == last else 0
+            last = seen
+            # The same decision over and over: a play that never happens.
+            assert repeats < 10, f"seed {seed}: a play that never happens, at {decision.prompt}"
+            choice = rng.randrange(len(decision.options))
+            if decision.seat == 0 and decision.kind == "priority":
+                # Counter whenever possible.
+                counters = [o["index"] for o in decision.options if o["label"].startswith("Cast ") and "Counter" in o["label"]]
+                if counters:
+                    if not decision.view["stack"]:
+                        offered_on_empty_stack += [decision.options[i]["label"] for i in counters]
+                    choice = rng.choice(counters)
+            registry.queue.answer(decision.id, choice)
+        assert session.status == "finished", session.error
+        events += session.events_since(0)
+    assert offered_on_empty_stack == []
+    assert [e for e in events if e["kind"] == "play_failed" and e["payload"]["reason"] == "targets"] == []
+    countered = [e["text"] for e in events if e["kind"] == "log" and e["text"].startswith("A cast ")
+                 and any(name in e["text"] for name in ("Stifle", "Spell Snare", "Force Spike", "Counterspell",
+                                                         "Mana Leak", "Tale's End", "Remand", "Essence Scatter"))]
+    assert countered, "no counterspell was ever cast: the test proves nothing"
