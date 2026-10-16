@@ -53,8 +53,17 @@ A decision:
 {"decision_id":"…","game_id":"…","seat":0,"kind":"attack","prompt":"Declare attackers",
  "view":{…},"options":[{"index":0,"label":"Done (no more attackers)","facts":[]},
  {"index":1,"label":"Attack with Goblin Guide #12 (2/2) -> Player B (20 life)",
-  "facts":["deals 2 damage if unblocked","no creature can block it"]}]}
+  "facts":["deals 2 damage if unblocked","no creature can block it"]}],
+ "forge_ai_choice":1}
 ```
+
+`forge_ai_choice` is the option Forge's AI would pick, or `null` when it has no answer: a
+reference to compare with, not the right answer. It is computed without changing the game
+or drawing from its seeded random generator, so a seed replays the same game (only the
+AI's own memory for the seat, which it uses when a decision is delegated, may change). In a
+multi-select it points at the first pick of the AI's whole answer (computed at the first
+question) that is still to be made, then at "Done". The `decision` and `fallback` events
+carry it in their payload too.
 
 Kinds: `mulligan`, `bottom`, `priority`, `target`, `attack`, `block`, `choose_cards`,
 `confirm`, `mode`. Multi-selects come one pick at a time, option 0 being "Done" once the

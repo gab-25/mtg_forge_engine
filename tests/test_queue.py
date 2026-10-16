@@ -152,3 +152,10 @@ def test_unleased_decision_is_orphaned_after_the_orphan_timeout():
     assert result["answer"].choice is None and result["answer"].reason == "orphaned"
     with pytest.raises(UnknownDecision):
         q.answer("a", 0)
+
+
+def test_as_dict_carries_forge_ai_choice():
+    assert decision("a").as_dict()["forge_ai_choice"] is None
+    d = decision("b")
+    d.forge_ai_choice = 2
+    assert d.as_dict()["forge_ai_choice"] == 2
