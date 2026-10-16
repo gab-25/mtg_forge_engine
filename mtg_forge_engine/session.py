@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Callable
 
 import jpype
 
@@ -137,8 +138,12 @@ class GameSession:
 
     # --- decisions --------------------------------------------------------------
 
-    def ask(self, seat: int, kind: str, prompt: str, options: list[Option]) -> int | None:
-        """Blocks the game thread until the seat's client answers. None: Forge's AI decides."""
+    def ask(self, seat: int, kind: str, prompt: str, options: list[Option],
+            forge_ai: Callable[[], int | None] | None = None) -> int | None:
+        """Blocks the game thread until the seat's client answers. None: Forge's AI decides.
+
+        ``forge_ai`` gives the option Forge's AI would pick; it is only called for a
+        decision actually put to the client."""
         if self._abort.is_set():
             self._end_game()
             return None
@@ -152,6 +157,7 @@ class GameSession:
         self._sync_log()
         from .view import player_view
 
+        ai_choice = self._forge_ai_choice(seat, kind, forge_ai, len(options))
         decision = Decision(
             id=uuid.uuid4().hex,
             game_id=self.id,
@@ -160,6 +166,7 @@ class GameSession:
             prompt=prompt,
             view=player_view(self, seat),
             options=[{"index": i, "label": o.label, "facts": list(o.facts)} for i, o in enumerate(options)],
+            forge_ai_choice=ai_choice,
         )
         self.queue.submit(decision)
         answer = self.queue.wait(decision)
@@ -171,11 +178,21 @@ class GameSession:
             self._end_game()
             return None
         if answer.choice is None:
-            self.fallback(seat, kind, answer.reason, answer.meta)
+            self.fallback(seat, kind, answer.reason, {"forge_ai_choice": ai_choice, **answer.meta})
             return None
         self._event("decision", seat, f"{kind}: {options[answer.choice].label}",
-                    {"kind": kind, "choice": answer.choice, **answer.meta})
+                    {"kind": kind, "choice": answer.choice, "forge_ai_choice": ai_choice, **answer.meta})
         return answer.choice
+
+    def _forge_ai_choice(self, seat: int, kind: str, forge_ai, count: int) -> int | None:
+        if forge_ai is None:
+            return None
+        try:
+            choice = forge_ai()
+        except Exception:
+            logger.exception("game %s seat %s: forge_ai_choice for %s failed", self.id, seat, kind)
+            return None
+        return choice if choice is not None and 0 <= choice < count else None
 
     def fallback(self, seat: int, kind: str, reason: str, meta: dict | None = None) -> None:
         self._event("fallback", seat, f"{kind}: decided by Forge AI ({reason})",

@@ -3,6 +3,10 @@
 Every function returns the value Forge expects (Python side) or None, which
 hands the decision to Forge's AI. Multi-selects ask one pick at a time, with a
 "Done" option (index 0) once the minimum is reached.
+
+``ai`` is Forge's AI's whole answer to the decision (a ForgeAi). Each question
+tells the client which option leads there: the first pick of that answer not yet
+made, or "Done" once there is none left.
 """
 
 import jpype
@@ -11,24 +15,62 @@ from .labels import ability_label, card_label, entity_label, target_label
 from .session import Option
 
 
+class ForgeAi:
+    """What Forge's AI would answer, asked of the Java shim once, on first use: the
+    AI evaluates the game as it is at the first question put to the client."""
+
+    def __init__(self, supplier):
+        self._supplier = supplier
+        self._asked = False
+        self._answer = None
+
+    def get(self):
+        if not self._asked:
+            self._asked = True
+            self._answer = self._supplier.get() if self._supplier is not None else None
+        return self._answer
+
+
+def _next_pick(answer, chosen, candidates, offset: int, can_stop: bool) -> int | None:
+    """The question's option for the first item of ``answer`` not in ``chosen``
+    (an item repeats as often as the answer has it). ``candidates`` are the
+    options from ``offset`` on; option 0 is "Done" when ``can_stop``."""
+    if answer is None:
+        return None
+    pending = list(answer)
+    for item in chosen:
+        if item in pending:
+            pending.remove(item)
+    for item in pending:
+        if item in candidates:
+            return candidates.index(item) + offset
+    return 0 if can_stop else None
+
+
+def _yes_no(answer, yes: int, no: int) -> int | None:
+    return None if answer is None else (yes if bool(answer.booleanValue()) else no)
+
+
 def _zone(name: str):
     return getattr(jpype.JClass("forge.game.zone.ZoneType"), name)
 
 
-def mulligan(session, seat: int, player, cards_to_return: int) -> bool | None:
+def mulligan(session, seat: int, player, cards_to_return: int, ai: ForgeAi) -> bool | None:
     hand = ", ".join(card_label(c) for c in player.getCardsIn(_zone("Hand")))
     keep = "Keep this hand" + (f" (then put {cards_to_return} on the bottom)" if cards_to_return else "")
-    choice = session.ask(seat, "mulligan", f"Mulligan? Your hand: {hand}", [Option(keep), Option("Mulligan")])
+    choice = session.ask(seat, "mulligan", f"Mulligan? Your hand: {hand}", [Option(keep), Option("Mulligan")],
+                         lambda: _yes_no(ai.get(), yes=0, no=1))
     return None if choice is None else choice == 0
 
 
-def bottom(session, seat: int, player, hand, count: int) -> list | None:
+def bottom(session, seat: int, player, hand, count: int, ai: ForgeAi) -> list | None:
     remaining = list(hand)
     chosen = []
     while len(chosen) < count and remaining:
         choice = session.ask(seat, "bottom",
                              f"Put a card on the bottom of your library ({len(chosen) + 1} of {count})",
-                             [Option(card_label(c)) for c in remaining])
+                             [Option(card_label(c)) for c in remaining],
+                             lambda: _next_pick(ai.get(), chosen, remaining, 0, False))
         if choice is None:
             return None
         chosen.append(remaining.pop(choice))
@@ -106,18 +148,32 @@ def _priority_prompt(player) -> str:
     return prompt
 
 
-def priority(session, seat: int, player) -> list | None:
+def _same_ability(a, b) -> bool:
+    """Forge makes a new copy of some abilities (alternative costs) each time it lists them."""
+    return bool(a.equals(b)) or (bool(a.getHostCard().equals(b.getHostCard())) and str(a) == str(b))
+
+
+def _priority_pick(answer, abilities) -> int | None:
+    if answer is None:
+        return None
+    if answer.isEmpty():
+        return 0
+    return next((i + 1 for i, sa in enumerate(abilities) if _same_ability(sa, answer.get(0))), None)
+
+
+def priority(session, seat: int, player, ai: ForgeAi) -> list | None:
     abilities = playable(player)
     if not abilities:
         return []
     options = [Option("Pass priority")] + [Option(ability_label(sa)) for sa in abilities]
-    choice = session.ask(seat, "priority", _priority_prompt(player), options)
+    choice = session.ask(seat, "priority", _priority_prompt(player), options,
+                         lambda: _priority_pick(ai.get(), abilities))
     if choice is None:
         return None
     return [] if choice == 0 else [abilities[choice - 1]]
 
 
-def targets(session, seat: int, player, sa) -> bool | None:
+def targets(session, seat: int, player, sa, ai: ForgeAi) -> bool | None:
     restrictions = sa.getTargetRestrictions()
     if restrictions is None or sa.isDividedAsYouChoose():
         return None
@@ -133,7 +189,8 @@ def targets(session, seat: int, player, sa) -> bool | None:
             Option(target_label(c, player)) for c in candidates]
         prompt = (f"Choose a target for {source}: {sa.getDescription()} "
                   f"({chosen.size()} chosen, {sa.getMinTargets()}-{sa.getMaxTargets()})")
-        choice = session.ask(seat, "target", prompt, options)
+        choice = session.ask(seat, "target", prompt, options,
+                             lambda: _next_pick(ai.get(), list(chosen), candidates, 1 if can_stop else 0, can_stop))
         if choice is None:
             sa.resetTargets()
             return None
@@ -143,12 +200,13 @@ def targets(session, seat: int, player, sa) -> bool | None:
     return bool(sa.isTargetNumberValid())
 
 
-def confirm(session, seat: int, message: str) -> bool | None:
-    choice = session.ask(seat, "confirm", message or "Confirm?", [Option("No"), Option("Yes")])
+def confirm(session, seat: int, message: str, ai: ForgeAi) -> bool | None:
+    choice = session.ask(seat, "confirm", message or "Confirm?", [Option("No"), Option("Yes")],
+                         lambda: _yes_no(ai.get(), yes=1, no=0))
     return None if choice is None else choice == 1
 
 
-def modes(session, seat: int, sa, possible, minimum: int, num: int, allow_repeat: bool) -> list | None:
+def modes(session, seat: int, sa, possible, minimum: int, num: int, allow_repeat: bool, ai: ForgeAi) -> list | None:
     remaining = list(possible)
     chosen = []
     while len(chosen) < num and remaining:
@@ -156,7 +214,8 @@ def modes(session, seat: int, sa, possible, minimum: int, num: int, allow_repeat
         options = ([Option("Done (no more modes)")] if can_stop else []) + [
             Option(str(mode.getDescription())) for mode in remaining]
         prompt = f"Choose a mode for {card_label(sa.getHostCard())} ({len(chosen)} chosen, {minimum}-{num})"
-        choice = session.ask(seat, "mode", prompt, options)
+        choice = session.ask(seat, "mode", prompt, options,
+                             lambda: _next_pick(ai.get(), chosen, remaining, 1 if can_stop else 0, can_stop))
         if choice is None:
             return None
         if can_stop and choice == 0:
@@ -206,7 +265,14 @@ def _undo(combat, cards) -> None:
         combat.removeFromCombat(card)
 
 
-def attackers(session, seat: int, player, combat) -> bool | None:
+def _attack_pick(answer, pairs, declared) -> int | None:
+    if answer is None:
+        return None
+    wanted = [(e.getKey(), e.getValue()) for e in answer.entrySet() if e.getKey() not in declared]
+    return next((i + 1 for i, pair in enumerate(pairs) if pair in wanted), 0)
+
+
+def attackers(session, seat: int, player, combat, ai: ForgeAi) -> bool | None:
     util = _combat_util()
     available = [c for c in player.getCreaturesInPlay() if util.canAttack(c)]
     defenders = list(combat.getDefenders())
@@ -220,7 +286,7 @@ def attackers(session, seat: int, player, combat) -> bool | None:
             for a, d in pairs]
         prompt = "Declare attackers" + (
             f" (attacking: {', '.join(card_label(a) for a in declared)})" if declared else "")
-        choice = session.ask(seat, "attack", prompt, options)
+        choice = session.ask(seat, "attack", prompt, options, lambda: _attack_pick(ai.get(), pairs, declared))
         if choice is None:
             _undo(combat, declared)
             return None
@@ -236,7 +302,14 @@ def attackers(session, seat: int, player, combat) -> bool | None:
     return True
 
 
-def blockers(session, seat: int, player, combat) -> bool | None:
+def _block_pick(answer, pairs, declared) -> int | None:
+    if answer is None:
+        return None
+    wanted = [(e.getKey(), a) for e in answer.entrySet() if e.getKey() not in declared for a in e.getValue()]
+    return next((i + 1 for i, pair in enumerate(pairs) if pair in wanted), 0)
+
+
+def blockers(session, seat: int, player, combat, ai: ForgeAi) -> bool | None:
     util = _combat_util()
     # Only attackers attacking this player, or its planeswalkers and battles:
     # CombatUtil.canBlock does not check the defender.
@@ -256,7 +329,7 @@ def blockers(session, seat: int, player, combat) -> bool | None:
             Option(f"Block {card_label(a)} with {card_label(b)}", block_facts(b, a, combat, player))
             for b, a in pairs]
         prompt = f"Declare blockers (unblocked attackers deal {incoming}, your life {player.getLife()})"
-        choice = session.ask(seat, "block", prompt, options)
+        choice = session.ask(seat, "block", prompt, options, lambda: _block_pick(ai.get(), pairs, declared))
         if choice is None:
             _undo(combat, declared)
             return None
@@ -272,14 +345,15 @@ def blockers(session, seat: int, player, combat) -> bool | None:
     return True
 
 
-def entities(session, seat: int, player, title, options, minimum: int, maximum: int) -> list | None:
+def entities(session, seat: int, player, title, options, minimum: int, maximum: int, ai: ForgeAi) -> list | None:
     remaining = list(options)
     chosen = []
     title = str(title) if title else "Choose"
     while len(chosen) < maximum and remaining:
         can_stop = len(chosen) >= minimum
         labels = ([Option("Done")] if can_stop else []) + [Option(entity_label(e, player)) for e in remaining]
-        choice = session.ask(seat, "choose_cards", f"{title} ({len(chosen)} chosen, {minimum}-{maximum})", labels)
+        choice = session.ask(seat, "choose_cards", f"{title} ({len(chosen)} chosen, {minimum}-{maximum})", labels,
+                             lambda: _next_pick(ai.get(), chosen, remaining, 1 if can_stop else 0, can_stop))
         if choice is None:
             return None
         if can_stop and choice == 0:

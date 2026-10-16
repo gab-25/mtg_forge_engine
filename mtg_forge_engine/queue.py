@@ -38,6 +38,8 @@ class Decision:
     prompt: str
     view: dict
     options: list[dict]
+    # The option Forge's AI would pick; None when it has no answer.
+    forge_ai_choice: int | None = None
     submitted_at: float | None = None
     leased_at: float | None = None
     answer: Answer | None = None
@@ -51,6 +53,7 @@ class Decision:
             "prompt": self.prompt,
             "view": self.view,
             "options": self.options,
+            "forge_ai_choice": self.forge_ai_choice,
         }
 
 
