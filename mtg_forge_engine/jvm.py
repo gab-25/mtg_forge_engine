@@ -35,6 +35,8 @@ def start(forge_home: str) -> None:
         jpype.JClass("forge.gui.GuiBase").setInterface(jpype.JClass("forge.GuiDesktop")())
         jpype.JClass("forge.model.FModel").initialize(None, None)
         jpype.JClass("forge.bridge.GameRandom").install()
+        # Simulated outcomes are positions after the whole stack resolved: copy it.
+        jpype.JClass("forge.ai.simulation.GameSimulator").COPY_STACK = True
         _ready.set()
 
 
