@@ -39,6 +39,9 @@ def _handler_class():
             self.seat = seat
 
         def _guard(self, kind: str, decide):
+            if self.session.simulating:
+                # A decision of a simulated copy: Forge's AI plays it, the client never sees it.
+                return None
             try:
                 return decide()
             except Exception:
@@ -92,6 +95,8 @@ def _handler_class():
 
         @JOverride
         def onPlayFailed(self, player, sa, reason):
+            if self.session.simulating:
+                return
             try:
                 self.session.play_failed(self.seat, ability_label(sa), str(reason))
             except Exception:
@@ -99,6 +104,8 @@ def _handler_class():
 
         @JOverride
         def onAiDecision(self, player, method):
+            if self.session.simulating:
+                return
             self.session.on_ai_decision(self.seat, str(method))
 
     return Handler

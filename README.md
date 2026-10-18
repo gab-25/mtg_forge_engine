@@ -22,9 +22,9 @@ same Docker network as its client.
 | `MAX_TURNS` | 50 | Turn limit; reaching it is a draw (`end_reason: "turn_limit"`). Two-seat games count game turns; games of 3–4 seats count rounds (`MAX_TURNS` × seats game turns), so each player gets as many turns as in a duel. |
 | `GAME_TTL` | 3600 | Seconds an ended game stays readable. |
 | `ORPHAN_TIMEOUT` | 600 | Seconds a decision may wait for a worker to lease it; past that the client is taken as gone and the game is aborted (`end_reason: "orphaned"`). Keep it well above the queueing time of your worker pool. |
-| `SIMULATE` | 0 | `1` offers complete actions with simulated outcomes on `attack` and `block` decisions (see below). |
+| `SIMULATE` | 0 | `1` offers complete actions with simulated outcomes on `attack`, `block` and `priority` decisions (see below). |
 | `MAX_CANDIDATES` | 8 | The most candidates a simulated decision offers. |
-| `MAX_TARGETS_PER_ABILITY` | 4 | Targets enumerated per ability on a simulated priority decision (later release). |
+| `MAX_TARGETS_PER_ABILITY` | 4 | Targets enumerated per ability on a simulated priority decision. |
 | `SIMULATION_BUDGET_MS` | 1500 | Simulation time per decision; candidates past it come with `outcome: null`. |
 | `JAVA_OPTS` | `-Xmx2g` | JVM options. |
 | `PORT` | 8080 | HTTP port. |
@@ -76,8 +76,7 @@ by Forge's AI and logged as a `forge_ai` event.
 
 ### Simulated decisions (`SIMULATE=1`)
 
-With `SIMULATE=1` the `attack` and `block` decisions (and, in a later release, `priority`) are
-a single question whose options are **complete actions**, each with the position it leads
+With `SIMULATE=1` the `attack`, `block` and `priority` decisions are a single question whose options are **complete actions**, each with the position it leads
 to, computed by Forge on a copy of the game. The decision carries `"simulated": true` and
 every option an `outcome`:
 
@@ -109,8 +108,18 @@ every option an `outcome`:
   attacker, two blockers on two different attackers and two blockers on one attacker
   (`"Block A with X and Y"`). In the copy the attacker's non-attacking permanents are tapped:
   no pump, no abilities.
+- Priority candidates: `"Pass priority"` first, whose outcome is the position once the stack
+  has resolved (`"no change"` with an empty stack); then every playable ability. An ability
+  with one target becomes one candidate per legal target, the first `MAX_TARGETS_PER_ABILITY`
+  (default 4) in Forge's order (`Cast Lightning Bolt #12 for {R}: … targeting Player B (20 life)`),
+  plus `… (choose the target next)` when there are more; picking a candidate with a target
+  answers the following `target` question itself (it is not sent), unless the target became
+  illegal meanwhile — then the question comes as usual. Abilities with several targets, a
+  divided effect, or past `MAX_CANDIDATES` are offered as today, without outcome.
 - `forge_ai_choice` names the candidate with exactly the attackers (or blocks) Forge's AI
-  would declare, or `null`.
+  would declare, or `null`; on a priority decision, the first candidate of the ability it
+  would play (the AI's preview picks no target), so agreement on `priority` means the same
+  ability, not the same target.
 - Simulations draw their random numbers from an isolated copy of the game's generator: a
   seed replays the same game with `SIMULATE` on or off.
 

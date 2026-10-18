@@ -45,6 +45,12 @@ class GameSession:
                  max_turns: int, slots: threading.Semaphore, settings: Settings | None = None):
         self.id = game_id
         self.settings = settings or Settings()
+        # (SpellAbility, target) the client picked on a simulated priority decision:
+        # the next chooseTargetsFor of that ability is answered with it (choices.targets).
+        self.pending_target = None
+        # > 0 while a simulation runs on the game thread: the handler then leaves every
+        # decision of the copy to Forge's AI (simulation.Simulator).
+        self.simulating = 0
         self.format = fmt
         self.seed = seed
         self.seats = seats

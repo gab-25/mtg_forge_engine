@@ -174,11 +174,14 @@ class Simulator:
     def _run(self, fn):
         if time.monotonic() > self.deadline:
             return None
+        self.session.simulating += 1
         try:
             return isolated(fn)
         except Exception:  # noqa: BLE001 - a failing simulation never costs the decision.
             logger.exception("game %s seat %s: simulation failed", self.session.id, self.seat)
             return None
+        finally:
+            self.session.simulating -= 1
 
     def _copy(self):
         copier = _cls("forge.ai.simulation.GameCopier")(self.game)
@@ -204,7 +207,8 @@ class Simulator:
 
     def _simulator(self):
         score = _cls("forge.ai.simulation.GameStateEvaluator$Score")(0)
-        controller = _cls("forge.ai.simulation.SimulationController")(score)
+        # Depth 0: simulate this one action, never Forge's AI's follow-ups.
+        controller = _cls("forge.ai.simulation.SimulationController")(score, 0)
         sim = _cls("forge.ai.simulation.GameSimulator")(controller, self.game, self.player, None)
         copy = sim.getSimulatedGameState()
         return sim, copy, sim.getGameCopier().find(self.player)

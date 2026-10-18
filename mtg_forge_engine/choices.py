@@ -12,7 +12,8 @@ made, or "Done" once there is none left.
 import jpype
 
 from .candidates import attack_plans, block_plans
-from .labels import ability_label, attack_plan_label, block_plan_label, card_label, entity_label, target_label
+from .labels import (ability_label, ability_target_label, attack_plan_label, block_plan_label, card_label,
+                     entity_label, target_label)
 from .session import Option
 
 
@@ -162,10 +163,64 @@ def _priority_pick(answer, abilities) -> int | None:
     return next((i + 1 for i, sa in enumerate(abilities) if _same_ability(sa, answer.get(0))), None)
 
 
+def _single_target(sa) -> bool:
+    """One target to pick, which a candidate can carry; the rest is asked as today."""
+    return bool(sa.usesTargeting()) and not sa.isDividedAsYouChoose() and int(sa.getMaxTargets()) == 1
+
+
+def _simulated_priority(session, seat: int, player, ai: ForgeAi, abilities) -> list | None:
+    from .simulation import Simulator
+
+    simulator = Simulator(session, seat, player)
+    limit = session.settings.max_candidates
+    # (ability, target or None, carries a target) per option, option 0 being "Pass priority".
+    plays: list = [(None, None, False)]
+    options = [Option("Pass priority", (), simulator.pass_priority())]
+    for sa in abilities:
+        if len(options) >= limit:
+            # Past the limit, the rest is offered as today: one option per ability, no outcome.
+            plays.append((sa, None, False))
+            options.append(Option(ability_label(sa)))
+        elif not sa.usesTargeting():
+            plays.append((sa, None, False))
+            options.append(Option(ability_label(sa), (), simulator.ability(sa)))
+        elif not _single_target(sa):
+            plays.append((sa, None, False))
+            options.append(Option(ability_label(sa)))
+        else:
+            candidates = _candidates(sa)
+            shown = candidates[:session.settings.max_targets_per_ability]
+            for target in shown:
+                plays.append((sa, target, True))
+                options.append(Option(ability_target_label(sa, target, player), (), simulator.ability(sa, target)))
+            if len(candidates) > len(shown):
+                plays.append((sa, None, False))
+                options.append(Option(ability_target_label(sa, None, player)))
+
+    def forge_ai():
+        answer = ai.get()
+        if answer is None:
+            return None
+        if answer.isEmpty():
+            return 0
+        return next((i for i, (sa, _, _) in enumerate(plays) if sa is not None and _same_ability(sa, answer.get(0))), None)
+
+    choice = session.ask(seat, "priority", _priority_prompt(player), options, forge_ai, simulated=True)
+    if choice is None:
+        return None
+    sa, target, carries = plays[choice]
+    if sa is None:
+        return []
+    session.pending_target = (sa, target) if carries else None
+    return [sa]
+
+
 def priority(session, seat: int, player, ai: ForgeAi) -> list | None:
     abilities = playable(player)
     if not abilities:
         return []
+    if session.settings.simulate:
+        return _simulated_priority(session, seat, player, ai, abilities)
     options = [Option("Pass priority")] + [Option(ability_label(sa)) for sa in abilities]
     choice = session.ask(seat, "priority", _priority_prompt(player), options,
                          lambda: _priority_pick(ai.get(), abilities))
@@ -174,10 +229,27 @@ def priority(session, seat: int, player, ai: ForgeAi) -> list | None:
     return [] if choice == 0 else [abilities[choice - 1]]
 
 
+def _pre_answered(session, sa) -> bool | None:
+    """Answers chooseTargetsFor with the target picked on the priority decision, when it
+    is this ability's and still legal; otherwise None, and the question is asked."""
+    pending, session.pending_target = session.pending_target, None
+    if pending is None:
+        return None
+    pending_sa, target = pending
+    if not _same_ability(sa, pending_sa) or target not in _candidates(sa):
+        return None
+    sa.resetTargets()
+    sa.getTargets().add(target)
+    return bool(sa.isTargetNumberValid())
+
+
 def targets(session, seat: int, player, sa, ai: ForgeAi) -> bool | None:
     restrictions = sa.getTargetRestrictions()
     if restrictions is None or sa.isDividedAsYouChoose():
         return None
+    answered = _pre_answered(session, sa)
+    if answered:
+        return True
     sa.resetTargets()
     source = card_label(sa.getHostCard())
     while not sa.isMaxTargetChosen():

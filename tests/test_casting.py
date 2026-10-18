@@ -2,6 +2,7 @@ import random
 
 import pytest
 
+from mtg_forge_engine import choices
 from mtg_forge_engine.formats import FORMATS
 from mtg_forge_engine.queue import DecisionQueue
 from mtg_forge_engine.settings import Settings
@@ -182,3 +183,90 @@ def test_spells_that_target_the_stack_are_offered_and_cast_on_what_is_there(forg
                  and any(name in e["text"] for name in ("Stifle", "Spell Snare", "Force Spike", "Counterspell",
                                                          "Mana Leak", "Tale's End", "Remand", "Essence Scatter"))]
     assert countered, "no counterspell was ever cast: the test proves nothing"
+
+
+@pytest.fixture
+def simulating_registry(forge):
+    from mtg_forge_engine.registry import GameRegistry
+
+    settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=50, game_ttl=3600, forge_home=forge,
+                        simulate=True)
+    return GameRegistry(settings, DecisionQueue(settings.decision_timeout))
+
+
+def _play(registry, seeds, choose=None, record=None, hook=None, decks=(RED, GREEN)):
+    """Random games; ``choose(decision, rng)`` may override the pick; ``hook(session)`` runs before each game."""
+    import time
+
+    record = [] if record is None else record
+    for seed in seeds:
+        session = registry.create(FORMATS["modern"], seed, external_seats(*decks))
+        if hook:
+            hook(session)
+        rng = random.Random(seed)
+        deadline = time.monotonic() + 300
+        while session.status in ("queued", "running"):
+            assert time.monotonic() < deadline, f"game {session.id} did not finish"
+            decision = registry.queue.lease(0.2, session.id)
+            if decision is None:
+                continue
+            record.append(decision)
+            pick = choose(decision, rng) if choose else None
+            registry.queue.answer(decision.id, rng.randrange(len(decision.options)) if pick is None else pick)
+        assert session.status == "finished", session.error
+    return record
+
+
+def _bolt_options(record):
+    return [o for d in record if d.kind == "priority" for o in d.options if o["label"].startswith("Cast Lightning Bolt")]
+
+
+def test_simulated_priority_offers_targets_as_candidates(simulating_registry):
+    record = _play(simulating_registry, range(21, 27))
+    bolts = _bolt_options(record)
+    assert bolts and all(d.as_dict()["simulated"] for d in record if d.kind == "priority")
+    assert all(" targeting " in o["label"] or o["label"].endswith("(choose the target next)") for o in bolts)
+    at_players = [o for o in bolts if " targeting Player " in o["label"] and o["outcome"]]
+    assert at_players and all(o["outcome"]["opponents"][0]["life"][1] == o["outcome"]["opponents"][0]["life"][0] - 3
+                              for o in at_players)
+
+
+def _bolt_the_player(decision, rng):
+    if decision.seat == 0 and decision.kind == "priority":
+        for o in decision.options:
+            if o["label"].startswith("Cast Lightning Bolt") and " targeting Player " in o["label"]:
+                return o["index"]
+    return None
+
+
+def test_a_chosen_target_is_not_asked_again(simulating_registry):
+    record = _play(simulating_registry, range(21, 27), choose=_bolt_the_player)
+    assert any(d.kind == "decision" or True for d in record)  # games ran
+    bolts_cast = [d for d in record if d.seat == 0 and d.kind == "priority"
+                  and any(o["label"].startswith("Cast Lightning Bolt") and " targeting Player " in o["label"] for o in d.options)]
+    assert bolts_cast
+    assert not [d for d in record if d.seat == 0 and d.kind == "target" and d.prompt.startswith("Choose a target for Lightning Bolt")]
+
+
+def test_a_stale_pre_answered_target_falls_back_to_the_question(simulating_registry, monkeypatch):
+    original = choices.targets
+
+    def stale(session, seat, player, sa, ai):
+        if session.pending_target is not None:
+            pending_sa, _ = session.pending_target
+            session.pending_target = (pending_sa, sa.getHostCard())  # the spell itself: never a legal target
+        return original(session, seat, player, sa, ai)
+
+    monkeypatch.setattr(choices, "targets", stale)
+    record = _play(simulating_registry, range(21, 27), choose=_bolt_the_player)
+    assert [d for d in record if d.seat == 0 and d.kind == "target" and d.prompt.startswith("Choose a target for Lightning Bolt")]
+
+
+def test_pass_shows_the_stack_resolving(simulating_registry):
+    record = _play(simulating_registry, (5, 6, 7), decks=(COUNTERSPELLS, GREEN))
+    answering = [d for d in record if d.kind == "priority" and "Top of the stack" in d.prompt
+                 and any(item["controller"] != d.seat for item in d.view["stack"])]
+    assert answering
+    passes = [d.options[0] for d in answering]
+    assert all(o["label"] == "Pass priority" for o in passes)
+    assert any(o["outcome"] and o["outcome"]["summary"] != "no change" for o in passes)

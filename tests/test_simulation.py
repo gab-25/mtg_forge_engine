@@ -208,3 +208,23 @@ def test_simulations_leave_the_games_random_sequence_alone(registry, monkeypatch
         runs.append((answers, logs, session.winner))
     assert active["ran"] > 0
     assert runs[0] == runs[1]
+
+
+def test_the_handler_defers_to_forge_ai_while_simulating(registry, monkeypatch):
+    """A copy's decisions must never reach Python: the client would be asked about a
+    game that does not exist, and a simulated decision would start a simulation."""
+    from mtg_forge_engine.handler import make_handler
+
+    def never(*args, **kwargs):
+        raise AssertionError("the client was asked during a simulation")
+
+    monkeypatch.setattr(choices, "mulligan", never)
+    monkeypatch.setattr(choices, "attackers", never)
+    session = registry.create(FORMATS["modern"], 1, external_seats(RED, GREEN))
+    session.simulating = 1
+    handler = make_handler(session, 0)
+    assert handler.mulliganKeepHand(None, 0, None) is None
+    assert handler.declareAttackers(None, None, None) is None
+    assert not [e for e in session.events_since(0) if e["kind"] == "fallback"]
+    session.simulating = 0
+    session.abort()

@@ -66,3 +66,10 @@ def block_plan_label(plan) -> str:
         groups.setdefault(attacker, []).append(blocker)
     return "; ".join(f"Block {card_label(attacker)} with {' and '.join(card_label(b) for b in blockers)}"
                      for attacker, blockers in groups.items())
+
+
+def ability_target_label(sa, target, viewer) -> str:
+    """A play with its target chosen, or with the target left for the next question (``None``)."""
+    if target is None:
+        return f"{ability_label(sa)} (choose the target next)"
+    return f"{ability_label(sa)} targeting {target_label(target, viewer)}"
