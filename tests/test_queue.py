@@ -159,3 +159,10 @@ def test_as_dict_carries_forge_ai_choice():
     d = decision("b")
     d.forge_ai_choice = 2
     assert d.as_dict()["forge_ai_choice"] == 2
+
+
+def test_as_dict_carries_simulated_and_outcomes():
+    plan = [{"index": 0, "label": "No attack", "facts": [], "outcome": None}]
+    d = Decision("d", "g", 0, "attack", "p", {}, plan, simulated=True)
+    assert d.as_dict()["simulated"] is True and d.as_dict()["options"][0]["outcome"] is None
+    assert Decision("d", "g", 0, "attack", "p", {}, []).as_dict()["simulated"] is False

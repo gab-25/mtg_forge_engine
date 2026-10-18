@@ -11,7 +11,8 @@ made, or "Done" once there is none left.
 
 import jpype
 
-from .labels import ability_label, card_label, entity_label, target_label
+from .candidates import attack_plans
+from .labels import ability_label, attack_plan_label, card_label, entity_label, target_label
 from .session import Option
 
 
@@ -272,10 +273,61 @@ def _attack_pick(answer, pairs, declared) -> int | None:
     return next((i + 1 for i, pair in enumerate(pairs) if pair in wanted), 0)
 
 
+def _plan_pick(answer_pairs, plans) -> int | None:
+    """The index of the plan with exactly the pairs Forge's AI would declare, else None."""
+    if answer_pairs is None:
+        return None
+    wanted = frozenset(answer_pairs)
+    return next((i for i, plan in enumerate(plans) if frozenset(plan) == wanted), None)
+
+
+def _legal_attack(util, combat, plan) -> bool:
+    for attacker, defender in plan:
+        combat.addAttacker(attacker, defender)
+    try:
+        return bool(util.validateAttackers(combat))
+    finally:
+        _undo(combat, [a for a, _ in plan])
+
+
+def _attack_plan_facts(plan, combat, player) -> tuple[str, ...]:
+    return tuple(f"{card_label(a)}: " + "; ".join(attack_facts(a, d, combat, player)) for a, d in plan)
+
+
+def _simulated_attackers(session, seat: int, player, combat, ai: ForgeAi, available, defenders) -> bool | None:
+    from .simulation import Simulator
+
+    util = _combat_util()
+    players = [d for d in defenders if isinstance(d, jpype.JClass("forge.game.player.Player"))]
+    legal = [(a, d) for a in available for d in defenders if util.canAttack(a, d)]
+    plans = [plan for plan in attack_plans(available, defenders, players, session.settings.max_candidates)
+             if all(pair in legal for pair in plan) and _legal_attack(util, combat, plan)]
+    simulator = Simulator(session, seat, player)
+    options = [Option(attack_plan_label(plan, player), _attack_plan_facts(plan, combat, player),
+                      simulator.attack(combat, plan)) for plan in plans]
+
+    def forge_ai():
+        answer = ai.get()
+        return _plan_pick(None if answer is None else [(e.getKey(), e.getValue()) for e in answer.entrySet()], plans)
+
+    choice = session.ask(seat, "attack", "Declare your attack", options, forge_ai, simulated=True)
+    if choice is None:
+        return None
+    for attacker, defender in plans[choice]:
+        combat.addAttacker(attacker, defender)
+    if not util.validateAttackers(combat):
+        _undo(combat, [a for a, _ in plans[choice]])
+        session.fallback(seat, "attack", "invalid_attack")
+        return None
+    return True
+
+
 def attackers(session, seat: int, player, combat, ai: ForgeAi) -> bool | None:
     util = _combat_util()
     available = [c for c in player.getCreaturesInPlay() if util.canAttack(c)]
     defenders = list(combat.getDefenders())
+    if session.settings.simulate and available:
+        return _simulated_attackers(session, seat, player, combat, ai, available, defenders)
     declared = []
     while True:
         pairs = [(a, d) for a in available if a not in declared for d in defenders if util.canAttack(a, d)]

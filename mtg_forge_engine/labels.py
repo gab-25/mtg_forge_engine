@@ -43,3 +43,15 @@ def target_label(target, viewer) -> str:
     if isinstance(target, jpype.JClass("forge.game.spellability.SpellAbility")):
         return stack_item_label(target, viewer)
     return entity_label(target, viewer)
+
+
+def attack_plan_label(plan, viewer) -> str:
+    """A whole attack: ``"No attack"``, or the attackers grouped by defender."""
+    if not plan:
+        return "No attack"
+    groups: dict = {}
+    for attacker, defender in plan:
+        groups.setdefault(defender, []).append(attacker)
+    return "; ".join(
+        f"Attack with {', '.join(card_label(a) for a in attackers)} -> {entity_label(defender, viewer)}"
+        for defender, attackers in groups.items())

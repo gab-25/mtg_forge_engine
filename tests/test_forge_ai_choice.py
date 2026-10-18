@@ -142,3 +142,24 @@ def test_a_seed_replays_the_same_game(registry):
                 if e["kind"] == "log" and not e["text"].startswith("Match Duration")]
         runs.append((answers, logs, session.winner))
     assert runs[0] == runs[1]
+
+
+@pytest.mark.jvm
+def test_forge_ai_choice_on_simulated_attacks_names_a_plan(forge):
+    from mtg_forge_engine.registry import GameRegistry
+
+    settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=50, game_ttl=3600, forge_home=forge,
+                        simulate=True)
+    registry = GameRegistry(settings, DecisionQueue(settings.decision_timeout))
+    record = []
+    for seed in range(50, 56):
+        session = registry.create(FORMATS["modern"], seed, external_seats(RED, GREEN))
+        play_randomly(registry.queue, session, random.Random(seed), record=record)
+        assert session.status == "finished", session.error
+    attacks = [d for d in record if d.kind == "attack"]
+    assert attacks and all(d.as_dict()["simulated"] for d in attacks)
+    rated = [d for d in attacks if d.forge_ai_choice is not None]
+    assert rated, "Forge's AI never mapped onto a plan"
+    for d in rated:
+        label = d.options[d.forge_ai_choice]["label"]
+        assert label == "No attack" or label.startswith("Attack with ")

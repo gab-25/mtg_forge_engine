@@ -40,6 +40,8 @@ class Decision:
     options: list[dict]
     # The option Forge's AI would pick; None when it has no answer.
     forge_ai_choice: int | None = None
+    # The options are complete actions with simulated outcomes (see the README).
+    simulated: bool = False
     submitted_at: float | None = None
     leased_at: float | None = None
     answer: Answer | None = None
@@ -54,6 +56,7 @@ class Decision:
             "view": self.view,
             "options": self.options,
             "forge_ai_choice": self.forge_ai_choice,
+            "simulated": self.simulated,
         }
 
 

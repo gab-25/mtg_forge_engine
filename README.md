@@ -22,6 +22,10 @@ same Docker network as its client.
 | `MAX_TURNS` | 50 | Turn limit; reaching it is a draw (`end_reason: "turn_limit"`). Two-seat games count game turns; games of 3–4 seats count rounds (`MAX_TURNS` × seats game turns), so each player gets as many turns as in a duel. |
 | `GAME_TTL` | 3600 | Seconds an ended game stays readable. |
 | `ORPHAN_TIMEOUT` | 600 | Seconds a decision may wait for a worker to lease it; past that the client is taken as gone and the game is aborted (`end_reason: "orphaned"`). Keep it well above the queueing time of your worker pool. |
+| `SIMULATE` | 0 | `1` offers complete actions with simulated outcomes on `attack` decisions (see below). |
+| `MAX_CANDIDATES` | 8 | The most candidates a simulated decision offers. |
+| `MAX_TARGETS_PER_ABILITY` | 4 | Targets enumerated per ability on a simulated priority decision (later release). |
+| `SIMULATION_BUDGET_MS` | 1500 | Simulation time per decision; candidates past it come with `outcome: null`. |
 | `JAVA_OPTS` | `-Xmx2g` | JVM options. |
 | `PORT` | 8080 | HTTP port. |
 
@@ -69,6 +73,43 @@ Kinds: `mulligan`, `bottom`, `priority`, `target`, `attack`, `block`, `choose_ca
 `confirm`, `mode`. Multi-selects come one pick at a time, option 0 being "Done" once the
 minimum is reached. Everything else (mana payment, damage assignment, scry, …) is decided
 by Forge's AI and logged as a `forge_ai` event.
+
+### Simulated decisions (`SIMULATE=1`)
+
+With `SIMULATE=1` the `attack` decision (and, in later releases, `block` and `priority`) is
+a single question whose options are **complete actions**, each with the position it leads
+to, computed by Forge on a copy of the game. The decision carries `"simulated": true` and
+every option an `outcome`:
+
+```json
+{"index":1,"label":"Attack with Six #30 (5/7), Gearhulk #9 (7/7) -> Player B (5 life)",
+ "facts":["Six #30 (5/7): deals 5 damage if unblocked; can be blocked by: …"],
+ "outcome":{"you":{"name":"A","life":[14,14],"hand":[8,8],"graveyard":[2,2],"lost":[],"gained":[],"changed":["Six (5/7) → Six (5/7, tapped)"]},
+            "opponents":[{"name":"B","life":[5,-7],"hand":[6,6],"graveyard":[1,1],"lost":[],"gained":[],"changed":[]}],
+            "summary":"B: 5 → -7 life; you: Six (5/7) → Six (5/7, tapped)"}}
+```
+
+- `outcome` is the difference between the position before and after the action, seen from
+  the deciding seat, **after the whole stack resolved**: life, hand and graveyard as
+  `[before, after]` counts, permanents `lost`, `gained` and `changed` by label. Cards drawn
+  from the library are never named (the hand is a count); face-down cards are unnamed.
+- In the copy the opponents are **silenced**: every permanent they control is tapped
+  (attacking creatures excepted), so nothing blocks, no mana is available, nothing is
+  activated. The outcome is what happens if the opponent does not respond; the `facts`
+  still say what could ("can be blocked by", "dies if blocked by").
+- Attack candidates, in this order, cut at `MAX_CANDIDATES` (default 8): no attack (option
+  0, `"No attack"`); every available attacker at each defender (players first, then
+  planeswalkers and battles); each attacker alone at each defender; with at most four
+  attackers, each pair at the first player. Illegal declarations are dropped. The enumeration
+  is fixed: no judgement of merit.
+- `outcome` is `null` when the simulation of that candidate failed or the decision's
+  `SIMULATION_BUDGET_MS` (default 1500) ran out; the option is still offered.
+- `forge_ai_choice` names the candidate with exactly the attackers Forge's AI would
+  declare, or `null`.
+- Simulations draw their random numbers from an isolated copy of the game's generator: a
+  seed replays the same game with `SIMULATE` on or off.
+
+Without `SIMULATE` (the default) the decisions are the one-pick-at-a-time ones above.
 
 A priority decision offers only what can be played: land plays, and spells and abilities
 whose costs can be paid and whose targets exist, a spell that targets the stack (Stifle,

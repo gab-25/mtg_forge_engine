@@ -29,6 +29,8 @@ TURN_START = re.compile(r"^Turn (\d+) ")
 class Option:
     label: str
     facts: tuple[str, ...] = ()
+    # The position this option leads to, when the decision was simulated (see the README).
+    outcome: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,7 @@ class GameSession:
     # --- decisions --------------------------------------------------------------
 
     def ask(self, seat: int, kind: str, prompt: str, options: list[Option],
-            forge_ai: Callable[[], int | None] | None = None) -> int | None:
+            forge_ai: Callable[[], int | None] | None = None, simulated: bool = False) -> int | None:
         """Blocks the game thread until the seat's client answers. None: Forge's AI decides.
 
         ``forge_ai`` gives the option Forge's AI would pick; it is only called for a
@@ -167,8 +169,10 @@ class GameSession:
             kind=kind,
             prompt=prompt,
             view=player_view(self, seat),
-            options=[{"index": i, "label": o.label, "facts": list(o.facts)} for i, o in enumerate(options)],
+            options=[{"index": i, "label": o.label, "facts": list(o.facts), "outcome": o.outcome}
+                     for i, o in enumerate(options)],
             forge_ai_choice=ai_choice,
+            simulated=simulated,
         )
         self.queue.submit(decision)
         answer = self.queue.wait(decision)
