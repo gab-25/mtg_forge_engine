@@ -317,3 +317,22 @@ def test_a_stack_with_an_ability_gives_no_outcome(registry, monkeypatch):
     except AssertionError as exc:
         pytest.skip(f"no ability on the stack at a priority decision: {exc}")
     assert result is None
+
+
+def _goblin_guide_can_attack(session, player, combat):
+    return combat is not None and any(str(a.getName()) == "Goblin Guide" for a in _attackers(player))
+
+
+def test_an_attack_with_a_trigger_still_has_an_outcome(registry, monkeypatch):
+    """Goblin Guide's attack trigger lands on the copy's stack: it must resolve before the
+    copy moves on, or Forge refuses to advance ("Stack isn't empty")."""
+    from mtg_forge_engine.simulation import Simulator
+
+    def probe(session, seat, player, combat):
+        guide = next(a for a in _attackers(player) if str(a.getName()) == "Goblin Guide")
+        defender = _player_defender(combat)
+        return Simulator(session, seat, player).attack(combat, [(guide, defender)]), int(defender.getLife()), int(guide.getNetPower())
+
+    result, life, power = at_first(registry, monkeypatch, "attack", probe, seeds=range(50, 120), when=_goblin_guide_can_attack)
+    assert result is not None
+    assert result["opponents"][0]["life"] == [life, life - power]

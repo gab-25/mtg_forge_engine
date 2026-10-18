@@ -266,7 +266,11 @@ class Simulator:
             combat.orderAttackersForDamageAssignment()
             combat.removeAbsentCombatants()
             combat.fireTriggersForUnblockedAttackers(copy)
-        phases.devAdvanceToPhase(phase_type.COMBAT_DAMAGE)
+        # The declaration's triggers (Goblin Guide, unblocked attackers…) land on the
+        # copy's stack at each step: Forge refuses to change phase with a stack, so the
+        # resolver empties it before every step, as priority passes would.
+        resolver = jpype.JProxy("java.lang.Runnable", dict={"run": lambda: self._resolve_stack(copy, me)})
+        phases.devAdvanceToPhase(phase_type.COMBAT_DAMAGE, resolver)
         return outcome(before, position(copy, me), str(me.getName()))
 
     @staticmethod
