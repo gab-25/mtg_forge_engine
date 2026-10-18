@@ -189,7 +189,17 @@ class Simulator:
         copy, me = copied
         silence(copy, me)
         before = position(copy, me)
-        copy.getPhaseHandler().devAdvanceToPhase(_cls("forge.game.phase.PhaseType").COMBAT_DAMAGE)
+        phases = copy.getPhaseHandler()
+        phase_type = _cls("forge.game.phase.PhaseType")
+        if phases.getPhase() == phase_type.COMBAT_DECLARE_BLOCKERS:
+            # Copied mid-declaration: finish what Forge does once every blocker is
+            # declared, or the damage step finds attackers neither blocked nor unblocked.
+            combat = copy.getCombat()
+            combat.orderBlockersForDamageAssignment()
+            combat.orderAttackersForDamageAssignment()
+            combat.removeAbsentCombatants()
+            combat.fireTriggersForUnblockedAttackers(copy)
+        phases.devAdvanceToPhase(phase_type.COMBAT_DAMAGE)
         return outcome(before, position(copy, me), str(me.getName()))
 
     def _simulator(self):

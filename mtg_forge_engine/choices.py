@@ -11,8 +11,8 @@ made, or "Done" once there is none left.
 
 import jpype
 
-from .candidates import attack_plans
-from .labels import ability_label, attack_plan_label, card_label, entity_label, target_label
+from .candidates import attack_plans, block_plans
+from .labels import ability_label, attack_plan_label, block_plan_label, card_label, entity_label, target_label
 from .session import Option
 
 
@@ -361,22 +361,69 @@ def _block_pick(answer, pairs, declared) -> int | None:
     return next((i + 1 for i, pair in enumerate(pairs) if pair in wanted), 0)
 
 
+def _incoming(combat, player) -> int:
+    unblocked = jpype.JClass("java.util.ArrayList")()
+    for a in combat.getAttackersOf(player):
+        if combat.getBlockers(a).isEmpty():
+            unblocked.add(a)
+    return int(_ai_combat().sumDamageIfUnblocked(unblocked, player))
+
+
+def _legal_blocks(util, combat, player, plan) -> bool:
+    for blocker, attacker in plan:
+        combat.addBlocker(attacker, blocker)
+    try:
+        return util.validateBlocks(combat, player) is None
+    finally:
+        _undo(combat, [b for b, _ in plan])
+
+
+def _simulated_blockers(session, seat: int, player, combat, ai: ForgeAi, pairs) -> bool | None:
+    from .simulation import Simulator
+
+    util = _combat_util()
+    plans = [plan for plan in block_plans(pairs, session.settings.max_candidates)
+             if _legal_blocks(util, combat, player, plan)]
+    simulator = Simulator(session, seat, player)
+    options = [Option(block_plan_label(plan),
+                      tuple(f"{card_label(b)}: " + "; ".join(block_facts(b, a, combat, player)) for b, a in plan),
+                      simulator.blocks(combat, plan)) for plan in plans]
+
+    def forge_ai():
+        answer = ai.get()
+        if answer is None:
+            return None
+        return _plan_pick([(e.getKey(), a) for e in answer.entrySet() for a in e.getValue()], plans)
+
+    prompt = f"Declare your blocks (unblocked attackers deal {_incoming(combat, player)}, your life {player.getLife()})"
+    choice = session.ask(seat, "block", prompt, options, forge_ai, simulated=True)
+    if choice is None:
+        return None
+    for blocker, attacker in plans[choice]:
+        combat.addBlocker(attacker, blocker)
+    if util.validateBlocks(combat, player) is not None:
+        _undo(combat, [b for b, _ in plans[choice]])
+        session.fallback(seat, "block", "invalid_block")
+        return None
+    return True
+
+
 def blockers(session, seat: int, player, combat, ai: ForgeAi) -> bool | None:
     util = _combat_util()
     # Only attackers attacking this player, or its planeswalkers and battles:
     # CombatUtil.canBlock does not check the defender.
     attacking = [a for a in combat.getAttackers() if player.equals(combat.getDefenderPlayerByAttacker(a))]
     available = [b for b in player.getCreaturesInPlay() if util.canBlock(b, combat)]
+    if session.settings.simulate:
+        pairs = [(b, a) for b in available for a in attacking if util.canBlock(a, b, combat)]
+        if pairs:
+            return _simulated_blockers(session, seat, player, combat, ai, pairs)
     declared = []
     while True:
         pairs = [(b, a) for b in available if b not in declared for a in attacking if util.canBlock(a, b, combat)]
         if not pairs:
             break
-        unblocked = jpype.JClass("java.util.ArrayList")()
-        for a in combat.getAttackersOf(player):
-            if combat.getBlockers(a).isEmpty():
-                unblocked.add(a)
-        incoming = int(_ai_combat().sumDamageIfUnblocked(unblocked, player))
+        incoming = _incoming(combat, player)
         options = [Option("Done (no more blockers)")] + [
             Option(f"Block {card_label(a)} with {card_label(b)}", block_facts(b, a, combat, player))
             for b, a in pairs]

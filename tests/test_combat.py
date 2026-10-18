@@ -73,3 +73,14 @@ def test_simulated_attack_decisions_are_whole_plans_with_outcomes(simulating_reg
     assert attack.options[0]["outcome"]["summary"] == "no change"
     assert len(attack.options) <= 8
     assert all(len(d.options) > 1 for d in record if d.kind == "attack")  # one question per combat, never a follow-up
+
+
+def test_simulated_block_decisions_are_whole_plans(simulating_registry):
+    record = play_until(simulating_registry, {"block"}, range(50, 70))
+    block = next(d for d in record if d.kind == "block")
+    assert block.options[0]["label"] == "No block" and block.as_dict()["simulated"]
+    assert all(o["label"].startswith("Block ") for o in block.options[1:])
+    assert block.prompt.startswith("Declare your blocks (unblocked attackers deal ")
+    no_block = block.options[0]["outcome"]
+    assert no_block["you"]["life"][1] <= no_block["you"]["life"][0]  # unblocked damage lands in the outcome
+    assert all(len(d.options) > 1 for d in record if d.kind == "block")

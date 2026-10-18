@@ -55,3 +55,14 @@ def attack_plan_label(plan, viewer) -> str:
     return "; ".join(
         f"Attack with {', '.join(card_label(a) for a in attackers)} -> {entity_label(defender, viewer)}"
         for defender, attackers in groups.items())
+
+
+def block_plan_label(plan) -> str:
+    """A whole set of blocks: ``"No block"``, or one clause per attacker blocked."""
+    if not plan:
+        return "No block"
+    groups: dict = {}
+    for blocker, attacker in plan:
+        groups.setdefault(attacker, []).append(blocker)
+    return "; ".join(f"Block {card_label(attacker)} with {' and '.join(card_label(b) for b in blockers)}"
+                     for attacker, blockers in groups.items())
