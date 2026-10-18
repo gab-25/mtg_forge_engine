@@ -85,7 +85,7 @@ def health(response: Response):
     if not jvm.is_ready():
         response.status_code = 503
         return {"status": "starting"}
-    return {"status": "ready", "cards": jvm.card_count()}
+    return {"status": "ready", "cards": jvm.card_count(), "simulate": settings.simulate}
 
 
 @app.post("/games", status_code=201)

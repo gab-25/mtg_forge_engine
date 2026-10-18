@@ -50,6 +50,7 @@ def wait_until_ended(client, game_id, timeout=60):
 def test_health(client):
     body = client.get("/health").json()
     assert body["status"] == "ready" and body["cards"] > 20000
+    assert body["simulate"] is False  # SIMULATE is off by default
 
 
 def test_full_game_over_http(client):
