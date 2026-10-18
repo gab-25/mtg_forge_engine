@@ -25,3 +25,15 @@ def test_formats():
 def test_orphan_timeout():
     assert load_settings({}).orphan_timeout == 600.0
     assert load_settings({"ORPHAN_TIMEOUT": "5"}).orphan_timeout == 5.0
+
+
+def test_simulation_defaults():
+    s = load_settings({})
+    assert (s.simulate, s.max_candidates, s.max_targets_per_ability, s.simulation_budget_ms) == (False, 8, 4, 1500)
+
+
+def test_simulation_overrides():
+    s = load_settings({"SIMULATE": "1", "MAX_CANDIDATES": "5", "MAX_TARGETS_PER_ABILITY": "2",
+                       "SIMULATION_BUDGET_MS": "300"})
+    assert (s.simulate, s.max_candidates, s.max_targets_per_ability, s.simulation_budget_ms) == (True, 5, 2, 300)
+    assert load_settings({"SIMULATE": "true"}).simulate and not load_settings({"SIMULATE": "0"}).simulate

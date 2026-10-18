@@ -17,6 +17,7 @@ import jpype
 
 from .formats import Format
 from .queue import Decision, DecisionQueue
+from .settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,9 @@ class SeatSpec:
 
 class GameSession:
     def __init__(self, game_id: str, fmt: Format, seed: int, seats: list[SeatSpec], queue: DecisionQueue,
-                 max_turns: int, slots: threading.Semaphore):
+                 max_turns: int, slots: threading.Semaphore, settings: Settings | None = None):
         self.id = game_id
+        self.settings = settings or Settings()
         self.format = fmt
         self.seed = seed
         self.seats = seats

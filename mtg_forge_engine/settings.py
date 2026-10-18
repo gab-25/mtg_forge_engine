@@ -13,6 +13,11 @@ class Settings:
     game_ttl: float = 3600.0
     forge_home: str = "/opt/forge"
     orphan_timeout: float = 600.0
+    # Simulated outcomes on attack, block and priority decisions (see the README).
+    simulate: bool = False
+    max_candidates: int = 8
+    max_targets_per_ability: int = 4
+    simulation_budget_ms: int = 1500
 
 
 def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
@@ -23,4 +28,8 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         game_ttl=float(env.get("GAME_TTL", 3600)),
         forge_home=env.get("FORGE_HOME", "/opt/forge"),
         orphan_timeout=float(env.get("ORPHAN_TIMEOUT", 600)),
+        simulate=str(env.get("SIMULATE", "0")).strip().lower() in ("1", "true", "yes"),
+        max_candidates=int(env.get("MAX_CANDIDATES", 8)),
+        max_targets_per_ability=int(env.get("MAX_TARGETS_PER_ABILITY", 4)),
+        simulation_budget_ms=int(env.get("SIMULATION_BUDGET_MS", 1500)),
     )

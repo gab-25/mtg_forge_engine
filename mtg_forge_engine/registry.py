@@ -28,7 +28,8 @@ class GameRegistry:
         self.purge()
         names = unique_names([seat.name for seat in seats])
         seats = [replace(seat, name=name) for seat, name in zip(seats, names)]
-        session = GameSession(uuid.uuid4().hex, fmt, seed, seats, self.queue, self.settings.max_turns, self._slots)
+        session = GameSession(uuid.uuid4().hex, fmt, seed, seats, self.queue, self.settings.max_turns, self._slots,
+                              settings=self.settings)
         with self._lock:
             self._games[session.id] = session
         session.start()

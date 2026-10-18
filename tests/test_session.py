@@ -80,3 +80,13 @@ def test_registry_get_and_abort_before_start(registry):
     session.join(30)
     assert session.status == "aborted"
     assert registry.get("missing") is None
+
+
+def test_a_session_keeps_its_settings():
+    from mtg_forge_engine.session import GameSession
+
+    session = GameSession("g", FORMATS["modern"], 1, [], DecisionQueue(1), 50, threading.BoundedSemaphore(1),
+                          settings=Settings(simulate=True))
+    assert session.settings.simulate is True
+    plain = GameSession("g", FORMATS["modern"], 1, [], DecisionQueue(1), 50, threading.BoundedSemaphore(1))
+    assert plain.settings.simulate is False
