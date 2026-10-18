@@ -1,5 +1,6 @@
 import random
 
+import jpype
 import pytest
 
 from mtg_forge_engine import choices
@@ -270,3 +271,39 @@ def test_pass_shows_the_stack_resolving(simulating_registry):
     passes = [d.options[0] for d in answering]
     assert all(o["label"] == "Pass priority" for o in passes)
     assert any(o["outcome"] and o["outcome"]["summary"] != "no change" for o in passes)
+
+
+def _counter_candidate(player):
+    for sa in choices.playable(player):
+        if sa.isSpell() and sa.usesTargeting() and "Counter" in str(sa.getDescription()):
+            for target in choices._candidates(sa):
+                if not isinstance(target, jpype.JClass("forge.game.card.Card")) and hasattr(target, "getHostCard"):
+                    return sa, target
+    return None
+
+
+def test_a_counterspell_candidate_shows_the_spell_not_resolving(simulating_registry, monkeypatch):
+    from mtg_forge_engine.simulation import Simulator
+
+    original = choices.priority
+    found = {}
+
+    def priority(session, seat, player, ai):
+        if "pass" not in found and seat == 0:
+            pair = _counter_candidate(player)
+            stack = session.game.getStack()
+            if pair and not stack.isEmpty() and stack.peekAbility().getHostCard().isCreature() \
+                    and not stack.peekAbility().getActivatingPlayer().equals(player):
+                sim = Simulator(session, seat, player)
+                found["pass"] = sim.pass_priority()
+                found["counter"] = sim.ability(*pair)
+                found["creature"] = str(stack.peekAbility().getHostCard().getName())
+        return original(session, seat, player, ai)
+
+    monkeypatch.setattr(choices, "priority", priority)
+    _play(simulating_registry, range(5, 12), decks=(COUNTERSPELLS, GREEN))
+    assert found, "no counterspell against an opponent's creature spell came up"
+    assert any(label.startswith(found["creature"]) for label in found["pass"]["opponents"][0]["gained"])
+    assert found["counter"] is not None, "the counterspell candidate has no outcome"
+    assert not any(label.startswith(found["creature"]) for label in found["counter"]["opponents"][0]["gained"])
+    assert found["counter"]["you"]["hand"][1] == found["counter"]["you"]["hand"][0] - 1

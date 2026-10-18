@@ -1,7 +1,8 @@
 """What changed between two positions, seen from the seat that decides. Pure Python.
 
-A position is ``{player name: {"life", "hand", "graveyard", "permanents"}}``, hand
-and graveyard as counts, ``permanents`` as ``{id: label}``. The outcome lists,
+A position is ``{player name: {"life", "hand", "graveyard", "permanents", "lost_game"}}``,
+hand and graveyard as counts, ``permanents`` as ``{id: label}``, ``lost_game`` when the
+player has lost (optional, False by default). The outcome lists,
 for the deciding seat ("you") and each opponent, the numbers before and after
 and the permanents lost, gained and changed, plus a one-line summary in a fixed
 order: opponents first, then you.
@@ -18,6 +19,7 @@ def _delta(name: str, before: dict, after: dict) -> dict:
         "lost": sorted(label for pid, label in old.items() if pid not in new),
         "gained": sorted(label for pid, label in new.items() if pid not in old),
         "changed": sorted(f"{old[pid]} → {new[pid]}" for pid in old if pid in new and old[pid] != new[pid]),
+        "lost_game": bool(after.get("lost_game", False)),
     }
 
 
@@ -42,6 +44,8 @@ def _parts(delta: dict) -> list[str]:
         parts.append(f"hand {delta['hand'][0]} → {delta['hand'][1]}")
     if delta["graveyard"][0] != delta["graveyard"][1]:
         parts.append(f"graveyard {delta['graveyard'][0]} → {delta['graveyard'][1]}")
+    if delta.get("lost_game"):
+        parts.append("loses the game")
     return parts
 
 

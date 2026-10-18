@@ -138,17 +138,17 @@ def test_outcomes_never_name_cards_drawn_from_the_library(registry, monkeypatch)
     from mtg_forge_engine.simulation import Simulator
 
     def probe(session, seat, player, combat):
-        library = player.getCardsIn(choices._zone("Library"))
-        top = str(next(iter(library)).getName())
         visible = {str(c.getName()) for p in session.game.getPlayers()
-                   for zone in ("Hand", "Battlefield", "Graveyard") for c in p.getCardsIn(choices._zone(zone))}
-        return Simulator(session, seat, player).ability(_draw_spell(player)), top, top in visible
+                   for zone in ("Hand", "Battlefield", "Graveyard", "Exile") for c in p.getCardsIn(choices._zone(zone))}
+        hidden = {str(c.getName()) for c in player.getCardsIn(choices._zone("Library"))} - visible
+        return Simulator(session, seat, player).ability(_draw_spell(player)), hidden
 
-    result, top, visible = at_first(registry, monkeypatch, "priority", probe, seeds=range(50, 80),
-                                    when=lambda s, p, c: _draw_spell(p) is not None)
+    result, hidden = at_first(registry, monkeypatch, "priority", probe, seeds=range(50, 80),
+                              when=lambda s, p, c: _draw_spell(p) is not None and s.game.getStack().isEmpty())
     assert result is not None and all(isinstance(n, int) for n in result["you"]["hand"])
-    if not visible:
-        assert top not in json.dumps(result)
+    assert hidden, "the test needs a card of the library that is nowhere to be seen"
+    text = json.dumps(result)
+    assert not [name for name in hidden if name in text]
 
 
 def test_a_failing_simulation_leaves_outcome_null(registry, monkeypatch):
@@ -228,3 +228,92 @@ def test_the_handler_defers_to_forge_ai_while_simulating(registry, monkeypatch):
     assert not [e for e in session.events_since(0) if e["kind"] == "fallback"]
     session.simulating = 0
     session.abort()
+
+
+def _lethal_board(session, player, combat):
+    if combat is None or not _attackers(player):
+        return False
+    defender = _player_defender(combat)
+    return sum(int(a.getNetPower()) for a in _attackers(player)) >= int(defender.getLife())
+
+
+def test_a_lethal_attack_says_the_opponent_loses(registry, monkeypatch):
+    from mtg_forge_engine.simulation import Simulator
+
+    def probe(session, seat, player, combat):
+        defender = _player_defender(combat)
+        return Simulator(session, seat, player).attack(combat, [(a, defender) for a in _attackers(player)]), int(defender.getLife())
+
+    result, life = at_first(registry, monkeypatch, "attack", probe, seeds=range(50, 120), when=_lethal_board)
+    opponent = result["opponents"][0]
+    assert opponent["life"][0] == life and opponent["life"][1] <= 0 and opponent["lost_game"] is True
+    assert "loses the game" in result["summary"]
+
+
+def test_attackers_are_tapped_in_the_outcome(registry, monkeypatch):
+    from mtg_forge_engine.simulation import Simulator
+
+    def no_vigilance(session, player, combat):
+        return combat is not None and any(not a.attackVigilance() for a in _attackers(player))
+
+    def probe(session, seat, player, combat):
+        attacker = next(a for a in _attackers(player) if not a.attackVigilance())
+        return Simulator(session, seat, player).attack(combat, [(attacker, _player_defender(combat))]), str(attacker.getName())
+
+    result, name = at_first(registry, monkeypatch, "attack", probe, when=no_vigilance)
+    assert any(change.startswith(name) and "tapped)" in change for change in result["you"]["changed"]), result
+
+
+def _bolt_at_me_on_top(session, player, combat=None):
+    stack = session.game.getStack()
+    if stack.isEmpty():
+        return False
+    top = stack.peekAbility()
+    return (not top.getActivatingPlayer().equals(player) and str(top.getHostCard().getName()) == "Lightning Bolt"
+            and any(t.equals(player) for t in top.getTargets() if hasattr(t, "getLife")))
+
+
+def test_passing_on_a_bolt_at_your_face_costs_three_life(registry, monkeypatch):
+    from mtg_forge_engine.simulation import Simulator
+
+    def probe(session, seat, player, combat):
+        return Simulator(session, seat, player).pass_priority(), int(player.getLife())
+
+    result, life = at_first(registry, monkeypatch, "priority", probe, seeds=range(50, 120), when=_bolt_at_me_on_top)
+    assert result["you"]["life"] == [life, life - 3]
+
+
+def _own_creature_on_top(session, player, combat=None):
+    stack = session.game.getStack()
+    if stack.isEmpty():
+        return False
+    top = stack.peekAbility()
+    return top.getActivatingPlayer().equals(player) and top.isSpell() and top.getHostCard().isCreature()
+
+
+def test_passing_on_your_own_creature_spell_lets_it_resolve(registry, monkeypatch):
+    from mtg_forge_engine.simulation import Simulator
+
+    def probe(session, seat, player, combat):
+        return Simulator(session, seat, player).pass_priority(), str(session.game.getStack().peekAbility().getHostCard().getName())
+
+    result, name = at_first(registry, monkeypatch, "priority", probe, seeds=range(50, 120), when=_own_creature_on_top)
+    assert any(label.startswith(name) for label in result["you"]["gained"]), result
+
+
+def _ability_on_top(session, player, combat=None):
+    stack = session.game.getStack()
+    return not stack.isEmpty() and not stack.peekAbility().isSpell()
+
+
+def test_a_stack_with_an_ability_gives_no_outcome(registry, monkeypatch):
+    """Forge copies only spells of the stack: a copy missing an item would give a confident wrong outcome."""
+    from mtg_forge_engine.simulation import Simulator
+
+    try:
+        result = at_first(registry, monkeypatch, "priority",
+                          lambda session, seat, player, combat: Simulator(session, seat, player).pass_priority(),
+                          seeds=range(50, 120), when=_ability_on_top)
+    except AssertionError as exc:
+        pytest.skip(f"no ability on the stack at a priority decision: {exc}")
+    assert result is None

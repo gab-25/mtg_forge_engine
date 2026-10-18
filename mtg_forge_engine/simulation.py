@@ -1,8 +1,9 @@
 """Carries a complete action out on a copy of the game and reports the position it leads to.
 
-Forge's own simulation classes do the work: ``GameCopier`` copies the game,
-``GameSimulator`` casts an ability on the copy and resolves the stack, the
-phase handler advances a copied combat to its damage. Before anything runs on
+Forge's own classes do the work: ``GameCopier`` copies the game (its stack
+included), ``ComputerUtil.handlePlayingSpellAbility`` casts the copied ability
+with the same targets, ``GameSimulator.resolveStack`` resolves the copied
+stack, the phase handler advances a copied combat to its damage. Before anything runs on
 the copy, every opponent is silenced (all their permanents tapped, attacking
 creatures excepted): the outcome is what happens if the opponent cannot
 respond. The real game is never touched, the real ``Combat`` edits are undone
@@ -52,15 +53,21 @@ def _label(card, viewer) -> str:
 
 
 def position(game, viewer) -> dict:
-    """The pure position of :mod:`.outcome` for every player of ``game``, seen by ``viewer``."""
+    """The pure position of :mod:`.outcome` for every player of ``game``, seen by ``viewer``.
+
+    Over the registered players: a player who just lost leaves ``getPlayers()``,
+    and a lethal attack must read as one.
+    """
+    lost = game.getLostPlayers()
     return {
         str(player.getName()): {
             "life": int(player.getLife()),
             "hand": int(player.getCardsIn(_zone("Hand")).size()),
             "graveyard": int(player.getCardsIn(_zone("Graveyard")).size()),
             "permanents": {int(c.getId()): _label(c, viewer) for c in player.getCardsIn(_zone("Battlefield"))},
+            "lost_game": bool(lost.contains(player)),
         }
-        for player in game.getPlayers()
+        for player in game.getRegisteredPlayers()
     }
 
 
@@ -142,12 +149,14 @@ class Simulator:
                 sa.resetTargets()
                 sa.getTargets().add(target)
             try:
-                sim, copy, me = self._simulator()
+                copy, copier, me = self._copy()
+                if not self._stack_mirrored(copy):
+                    return None
                 silence(copy, me)
                 before = position(copy, me)
-                score = sim.simulateSpellAbility(sa, True)
-                if int(score.value) == INT_MIN:
+                if not self._play(copy, copier, me, sa):
                     return None
+                self._resolve_stack(copy, me)
                 return outcome(before, position(copy, me), str(me.getName()))
             finally:
                 if target is not None:
@@ -161,10 +170,12 @@ class Simulator:
             if self.game.getStack().isEmpty():
                 here = position(self.game, self.player)
                 return outcome(here, here, str(self.player.getName()))
-            sim, copy, me = self._simulator()
+            copy, copier, me = self._copy()
+            if not self._stack_mirrored(copy):
+                return None
             silence(copy, me)
             before = position(copy, me)
-            _cls("forge.ai.simulation.GameSimulator").resolveStack(copy, me.getWeakestOpponent())
+            self._resolve_stack(copy, me)
             return outcome(before, position(copy, me), str(me.getName()))
 
         return self._run(run)
@@ -184,20 +195,73 @@ class Simulator:
             self.session.simulating -= 1
 
     def _copy(self):
+        """``(copy, copier, me)``: one copy of the game, its stack included (COPY_STACK)."""
         copier = _cls("forge.ai.simulation.GameCopier")(self.game)
         copy = copier.makeCopy()
-        return copy, copier.find(self.player)
+        return copy, copier, copier.find(self.player)
+
+    def _stack_mirrored(self, copy) -> bool:
+        """Forge copies only the spells of the stack: with an ability on it the copy is
+        not the game, and no outcome is better than a confident wrong one."""
+        return int(copy.getStack().size()) == int(self.game.getStack().size())
+
+    def _resolve_stack(self, copy, me) -> None:
+        _cls("forge.ai.simulation.GameSimulator").resolveStack(copy, me.getWeakestOpponent())
+
+    def _find_ability(self, copier, me, sa):
+        """The copy of ``sa`` on the copied host card, matched by description like Forge's
+        own simulator does."""
+        host = copier.find(sa.getHostCard())
+        wanted = str(sa)
+        for candidate in list(host.getSpellAbilities()) + list(host.getAllPossibleAbilities(me, True)):
+            if str(candidate) == wanted:
+                return candidate
+        return None
+
+    def _map_target(self, copy, copier, target):
+        """A target's copy: a spell or ability on the stack through the copied stack, anything else through the copier."""
+        if isinstance(target, _cls("forge.game.spellability.SpellAbility")):
+            host_id = int(target.getHostCard().getId())
+            for item in copy.getStack():
+                if int(item.getSourceCard().getId()) == host_id:
+                    return item.getSpellAbility()
+            raise LookupError(f"no copy of {target} on the copied stack")
+        return copier.find(target)
+
+    def _copy_targets(self, copy, copier, source, destination) -> None:
+        """Maps the targets of ``source`` and its sub-abilities onto ``destination``'s."""
+        while source is not None and destination is not None:
+            if source.usesTargeting():
+                destination.resetTargets()
+                for target in source.getTargets():
+                    destination.getTargets().add(self._map_target(copy, copier, target))
+            source, destination = source.getSubAbility(), destination.getSubAbility()
+
+    def _play(self, copy, copier, me, sa) -> bool:
+        """Plays the copy of ``sa`` on the copy of the game: a land drop, or a cast with the
+        same targets, costs paid by Forge's AI."""
+        if sa.isLandAbility():
+            return bool(me.playLand(copier.find(sa.getHostCard()), sa))
+        copied = self._find_ability(copier, me, sa)
+        if copied is None:
+            return False
+        copied.setActivatingPlayer(me)
+        choose = jpype.JProxy("java.util.function.Consumer",
+                              dict={"accept": lambda playing: self._copy_targets(copy, copier, sa, playing)})
+        return bool(_cls("forge.ai.ComputerUtil").handlePlayingSpellAbility(me, copied, choose))
 
     def _combat_outcome(self, copied):
-        copy, me = copied
+        copy, copier, me = copied
         silence(copy, me)
         before = position(copy, me)
         phases = copy.getPhaseHandler()
         phase_type = _cls("forge.game.phase.PhaseType")
-        if phases.getPhase() == phase_type.COMBAT_DECLARE_BLOCKERS:
+        combat = copy.getCombat()
+        if phases.getPhase() == phase_type.COMBAT_DECLARE_ATTACKERS:
+            self._finish_attack_declaration(copy, combat)
+        elif phases.getPhase() == phase_type.COMBAT_DECLARE_BLOCKERS:
             # Copied mid-declaration: finish what Forge does once every blocker is
             # declared, or the damage step finds attackers neither blocked nor unblocked.
-            combat = copy.getCombat()
             combat.orderBlockersForDamageAssignment()
             combat.orderAttackersForDamageAssignment()
             combat.removeAbsentCombatants()
@@ -205,10 +269,25 @@ class Simulator:
         phases.devAdvanceToPhase(phase_type.COMBAT_DAMAGE)
         return outcome(before, position(copy, me), str(me.getName()))
 
-    def _simulator(self):
-        score = _cls("forge.ai.simulation.GameStateEvaluator$Score")(0)
-        # Depth 0: simulate this one action, never Forge's AI's follow-ups.
-        controller = _cls("forge.ai.simulation.SimulationController")(score, 0)
-        sim = _cls("forge.ai.simulation.GameSimulator")(controller, self.game, self.player, None)
-        copy = sim.getSimulatedGameState()
-        return sim, copy, sim.getGameCopier().find(self.player)
+    @staticmethod
+    def _finish_attack_declaration(copy, combat) -> None:
+        """What Forge does once the attackers are declared (PhaseHandler.declareAttackersTurnBasedAction):
+        tap them, run the AttackersDeclared and Attacks triggers."""
+        attackers = list(combat.getAttackers())
+        for attacker in attackers:
+            if not attacker.attackVigilance():
+                attacker.setTapped(False)
+                attacker.tap(True, True, None, None)
+        ability_key = _cls("forge.game.ability.AbilityKey")
+        attacked = _cls("java.util.ArrayList")()
+        for defender in combat.getDefenders():
+            if not combat.getAttackersOf(defender).isEmpty():
+                attacked.add(defender)
+        params = ability_key.newMap()
+        params.put(ability_key.Attackers, combat.getAttackers())
+        params.put(ability_key.AttackingPlayer, combat.getAttackingPlayer())
+        params.put(ability_key.AttackedTarget, attacked)
+        copy.getTriggerHandler().runTrigger(_cls("forge.game.trigger.TriggerType").AttackersDeclared, params, False)
+        util = _cls("forge.game.combat.CombatUtil")
+        for attacker in attackers:
+            util.checkDeclaredAttacker(copy, attacker, combat, True)

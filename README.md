@@ -81,17 +81,27 @@ to, computed by Forge on a copy of the game. The decision carries `"simulated": 
 every option an `outcome`:
 
 ```json
-{"index":1,"label":"Attack with Six #30 (5/7), Gearhulk #9 (7/7) -> Player B (5 life)",
- "facts":["Six #30 (5/7): deals 5 damage if unblocked; can be blocked by: …"],
- "outcome":{"you":{"name":"A","life":[14,14],"hand":[8,8],"graveyard":[2,2],"lost":[],"gained":[],"changed":["Six (5/7) → Six (5/7, tapped)"]},
-            "opponents":[{"name":"B","life":[5,-7],"hand":[6,6],"graveyard":[1,1],"lost":[],"gained":[],"changed":[]}],
-            "summary":"B: 5 → -7 life; you: Six (5/7) → Six (5/7, tapped)"}}
+{"index":1,"label":"Attack with Grizzly Bears #41 (2/2), Centaur Courser #52 (3/3) -> Player A (4 life)",
+ "facts":["Grizzly Bears #41 (2/2): deals 2 damage if unblocked; can be blocked by: …",
+          "Centaur Courser #52 (3/3): deals 3 damage if unblocked; lethal if unblocked; can be blocked by: …"],
+ "outcome":{"you":{"name":"B","life":[20,20],"hand":[1,1],"graveyard":[2,2],"lost":[],"gained":[],
+                   "changed":["Centaur Courser (3/3) → Centaur Courser (3/3, tapped)","Grizzly Bears (2/2) → Grizzly Bears (2/2, tapped)"],
+                   "lost_game":false},
+            "opponents":[{"name":"A","life":[4,-1],"hand":[3,3],"graveyard":[5,5],"lost":[],"gained":[],"changed":[],"lost_game":true}],
+            "summary":"A: 4 → -1 life, loses the game; you: Centaur Courser (3/3) → Centaur Courser (3/3, tapped), Grizzly Bears (2/2) → Grizzly Bears (2/2, tapped)"}}
 ```
 
 - `outcome` is the difference between the position before and after the action, seen from
   the deciding seat, **after the whole stack resolved**: life, hand and graveyard as
-  `[before, after]` counts, permanents `lost`, `gained` and `changed` by label. Cards drawn
-  from the library are never named (the hand is a count); face-down cards are unnamed.
+  `[before, after]` counts, permanents `lost`, `gained` and `changed` by label, and
+  `lost_game` when the player has lost (the summary says "loses the game"). Cards drawn from
+  the library are never named (the hand is a count); face-down cards are unnamed.
+- What the copy does **not** model: every choice of the deciding seat inside the copy
+  (modes, X, discards, sacrifices, the targets of triggers) is Forge's AI's, not the
+  client's — a "Cast Fiery Confluence" outcome is the AI's modes. Blocks and attacks run
+  the declaration's triggers (attackers tapped, `Attacks`/`AttackersDeclared`, unblocked
+  triggers) but not block costs or `Blocks` triggers. Forge copies only the spells of the
+  stack: with an ability on it the outcome is `null`.
 - In the copy the opponents are **silenced**: every permanent they control is tapped
   (attacking creatures excepted), so nothing blocks, no mana is available, nothing is
   activated. The outcome is what happens if the opponent does not respond; the `facts`
