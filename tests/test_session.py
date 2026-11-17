@@ -2,12 +2,11 @@ import threading
 
 import pytest
 
-from mtg_forge_engine.decklist import parse_decklist
 from mtg_forge_engine.formats import FORMATS
-from mtg_forge_engine.queue import DecisionQueue
 from mtg_forge_engine.registry import unique_names
 from mtg_forge_engine.settings import Settings
 from tests.decks import GREEN, RED
+from tests.helpers import duel_seats, wait_for
 
 
 def test_unique_names():
@@ -19,18 +18,11 @@ def test_unique_names():
 def registry(forge):
     from mtg_forge_engine.registry import GameRegistry
 
-    settings = Settings(max_concurrent_games=4, decision_timeout=30, max_turns=50, game_ttl=3600, forge_home=forge)
-    return GameRegistry(settings, DecisionQueue(settings.decision_timeout))
+    return GameRegistry(Settings(max_concurrent_games=4, max_turns=50, game_ttl=3600, forge_home=forge))
 
 
-def seats(controller_a="forge_ai", controller_b="forge_ai", deck_a=RED, deck_b=GREEN, names=("Red", "Green")):
-    from mtg_forge_engine.decks import build_deck
-    from mtg_forge_engine.session import SeatSpec
-
-    return [
-        SeatSpec(names[0], build_deck(names[0], parse_decklist(deck_a), commander=False).deck, controller_a),
-        SeatSpec(names[1], build_deck(names[1], parse_decklist(deck_b), commander=False).deck, controller_b),
-    ]
+def seats(deck_a=RED, deck_b=GREEN, names=("Red", "Green")):
+    return duel_seats(deck_a, deck_b, names=names)
 
 
 @pytest.mark.jvm
@@ -38,11 +30,16 @@ def test_ai_vs_ai_game_finishes(registry):
     session = registry.create(FORMATS["modern"], 7, seats())
     session.join(300)
     assert session.status == "finished", session.error
-    kinds = {e["kind"] for e in session.events_since(0)}
-    assert {"log", "game_over"} <= kinds
+    events = session.events_since(0)
+    assert {e["kind"] for e in events} == {"log", "game_over"}
+    assert events[-1]["kind"] == "game_over"
+    assert events[-1]["payload"]["winner"] == session.winner
     assert session.winner in (0, 1, None)
     assert session.end_reason
-    assert [e["seq"] for e in session.events_since(0)] == list(range(len(session.events_since(0))))
+    if session.winner is not None:
+        assert [e["seat"] for e in session.eliminations] == [1 - session.winner]
+    assert [e["seq"] for e in events] == list(range(len(events)))
+    assert session.game is None  # released
 
 
 @pytest.mark.jvm
@@ -80,3 +77,27 @@ def test_registry_get_and_abort_before_start(registry):
     session.join(30)
     assert session.status == "aborted"
     assert registry.get("missing") is None
+
+
+@pytest.mark.jvm
+def test_abort_ends_a_running_game_on_the_game_thread(forge):
+    from mtg_forge_engine.registry import GameRegistry
+
+    # Green against green: long games, still running when aborted.
+    registry = GameRegistry(Settings(max_concurrent_games=4, max_turns=200, game_ttl=3600, forge_home=forge))
+    for seed in (11, 12, 13):
+        session = registry.create(FORMATS["modern"], seed, seats(deck_a=GREEN, names=("G1", "G2")))
+        wait_for(lambda: session.status not in ("queued", "running")
+                 or (session.status == "running" and session.turn >= 2), what="turn 2")
+        if session.status == "running":
+            break
+    assert session.status == "running", "every game ended before turn 2: the test proves nothing"
+    turn = session.turn
+    assert registry.abort(session.id)
+    session.join(60)
+    assert session.status == "aborted", session.error
+    assert session.end_reason == "aborted"
+    assert session.winner is None
+    assert session.turn <= turn + 1
+    game_over = session.events_since(0)[-1]
+    assert game_over["kind"] == "game_over" and game_over["payload"]["end_reason"] == "aborted"

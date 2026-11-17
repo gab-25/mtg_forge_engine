@@ -7,7 +7,7 @@ import forge.game.event.GameEventTurnBegan;
 
 /**
  * Ends the game in a draw once it passes its last turn. Runs on the game thread at
- * each turn's start, so it also holds when no external seat is left to call back.
+ * each turn's start: no seat ever calls back into Python to check it.
  */
 public class TurnLimit {
     private final Game game;
