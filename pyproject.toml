@@ -1,7 +1,7 @@
 [project]
 name = "mtg-forge-engine"
 version = "0.1.0"
-description = "The Forge MTG rules engine over HTTP, for external agents"
+description = "The Forge MTG rules engine over HTTP: Forge AI games"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
