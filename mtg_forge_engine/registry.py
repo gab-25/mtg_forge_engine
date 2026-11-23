@@ -6,7 +6,6 @@ import uuid
 from dataclasses import replace
 
 from .formats import Format
-from .queue import DecisionQueue
 from .session import GameSession, SeatSpec
 from .settings import Settings
 
@@ -17,9 +16,8 @@ def unique_names(names: list[str]) -> list[str]:
 
 
 class GameRegistry:
-    def __init__(self, settings: Settings, queue: DecisionQueue):
+    def __init__(self, settings: Settings):
         self.settings = settings
-        self.queue = queue
         self._slots = threading.BoundedSemaphore(settings.max_concurrent_games)
         self._games: dict[str, GameSession] = {}
         self._lock = threading.Lock()
@@ -28,7 +26,7 @@ class GameRegistry:
         self.purge()
         names = unique_names([seat.name for seat in seats])
         seats = [replace(seat, name=name) for seat, name in zip(seats, names)]
-        session = GameSession(uuid.uuid4().hex, fmt, seed, seats, self.queue, self.settings.max_turns, self._slots)
+        session = GameSession(uuid.uuid4().hex, fmt, seed, seats, self.settings.max_turns, self._slots)
         with self._lock:
             self._games[session.id] = session
         session.start()

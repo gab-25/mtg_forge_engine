@@ -1,50 +1,39 @@
 """One game: a Forge match on its own thread, its event log and its outcome.
 
-The game thread is the only one that touches the Forge Game. Decisions for
-external seats reach ``ask`` through the Java shim (mtg_forge_engine.handler), which
-blocks the game thread until a client answers.
+Every seat is Forge's AI, so the game runs inside ``Match.startGame`` without ever
+calling back into Python. The game thread is the only one that touches the Forge
+Game; ending it early (abort, turn limit) is left to Java event subscribers that
+run on that thread (``forge.bridge.Abort``, ``forge.bridge.TurnLimit``).
 """
 
 import logging
 import re
 import threading
 import time
-import uuid
 from dataclasses import dataclass
-from typing import Callable
 
 import jpype
 
 from .formats import Format
-from .queue import Decision, DecisionQueue
 
 logger = logging.getLogger(__name__)
 
-MAX_OPTIONS = 255
 TURN_START = re.compile(r"^Turn (\d+) ")
-
-
-@dataclass(frozen=True)
-class Option:
-    label: str
-    facts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class SeatSpec:
     name: str
     deck: object  # forge.deck.Deck
-    controller: str  # "external" or "forge_ai"
 
 
 class GameSession:
-    def __init__(self, game_id: str, fmt: Format, seed: int, seats: list[SeatSpec], queue: DecisionQueue,
-                 max_turns: int, slots: threading.Semaphore):
+    def __init__(self, game_id: str, fmt: Format, seed: int, seats: list[SeatSpec], max_turns: int,
+                 slots: threading.Semaphore):
         self.id = game_id
         self.format = fmt
         self.seed = seed
         self.seats = seats
-        self.queue = queue
         self.max_turns = max_turns
         # MAX_TURNS counts rounds in multiplayer: each player gets as many turns as in a duel.
         self.turn_limit = max_turns * len(seats) if len(seats) > 2 else max_turns
@@ -64,14 +53,11 @@ class GameSession:
         self._players: list = []
         self._tracker = None
         self._turn_cap = None
+        self._abort_switch = None
         self._final_turn = 0
-        # The Python side of each external seat's Java controller.
-        self.handlers: list = []
         self._log_seen = 0
         # The turn of the last Forge log entry read: the log is read in batches.
         self._log_turn = 0
-        self._turn_limit_hit = False
-        self._orphaned = False
         self._thread = threading.Thread(target=self._run, name=f"game-{game_id}", daemon=True)
 
     # --- lifecycle --------------------------------------------------------------
@@ -83,23 +69,13 @@ class GameSession:
         self._thread.join(timeout)
 
     def abort(self) -> None:
-        """Called from a request thread. Forge's Game is not thread-safe, so the
-        game thread ends the game at its next decision (withdrawn decisions wake
-        it up). A game with no external seat never calls back: it is ended from
-        here, at the risk of racing Forge's AI; so is a game whose external seats
-        have all lost."""
+        """Called from a request thread. Forge's Game is not thread-safe, so this only
+        flips a switch: the game thread ends the game at its next game event. A game
+        still queued never starts."""
         self._abort.set()
-        self.queue.withdraw_game(self.id)
-        if not self._external_seats_left():
-            self._end_game()
-
-    def _external_seats_left(self) -> bool:
-        game = self._game
-        externals = [i for i, seat in enumerate(self.seats) if seat.controller == "external"]
-        if game is None or not externals:
-            return bool(externals)
-        lost = game.getLostPlayers()
-        return any(not lost.contains(self._players[i]) for i in externals)
+        switch = self._abort_switch
+        if switch is not None:
+            switch.request()
 
     @property
     def game(self):
@@ -127,89 +103,11 @@ class GameSession:
         with self._lock:
             return list(self._events[max(since, 0):])
 
-    def player(self, seat: int):
-        return self._players[seat]
-
     def seat_of(self, player) -> int:
         for index, candidate in enumerate(self._players):
             if candidate.equals(player):
                 return index
         raise ValueError(f"{player} is not in game {self.id}")
-
-    # --- decisions --------------------------------------------------------------
-
-    def ask(self, seat: int, kind: str, prompt: str, options: list[Option],
-            forge_ai: Callable[[], int | None] | None = None) -> int | None:
-        """Blocks the game thread until the seat's client answers. None: Forge's AI decides.
-
-        ``forge_ai`` gives the option Forge's AI would pick; it is only called for a
-        decision actually put to the client."""
-        if self._abort.is_set():
-            self._end_game()
-            return None
-        if not options or self._past_turn_limit():
-            return None
-        if len(options) == 1:
-            return 0
-        if len(options) > MAX_OPTIONS:
-            self.fallback(seat, kind, "too_many_options")
-            return None
-        self._sync_log()
-        from .view import player_view
-
-        ai_choice = self._forge_ai_choice(seat, kind, forge_ai, len(options))
-        decision = Decision(
-            id=uuid.uuid4().hex,
-            game_id=self.id,
-            seat=seat,
-            kind=kind,
-            prompt=prompt,
-            view=player_view(self, seat),
-            options=[{"index": i, "label": o.label, "facts": list(o.facts)} for i, o in enumerate(options)],
-            forge_ai_choice=ai_choice,
-        )
-        self.queue.submit(decision)
-        answer = self.queue.wait(decision)
-        if answer.reason == "orphaned":
-            # No client took the decision: nobody is playing this game any more.
-            self._orphaned = True
-            self._abort.set()
-            self.fallback(seat, kind, answer.reason)
-            self._end_game()
-            return None
-        if answer.choice is None:
-            self.fallback(seat, kind, answer.reason, {"forge_ai_choice": ai_choice, **answer.meta})
-            return None
-        self._event("decision", seat, f"{kind}: {options[answer.choice].label}",
-                    {"kind": kind, "choice": answer.choice, "forge_ai_choice": ai_choice, **answer.meta})
-        return answer.choice
-
-    def _forge_ai_choice(self, seat: int, kind: str, forge_ai, count: int) -> int | None:
-        if forge_ai is None:
-            return None
-        try:
-            choice = forge_ai()
-        except Exception:
-            logger.exception("game %s seat %s: forge_ai_choice for %s failed", self.id, seat, kind)
-            return None
-        return choice if choice is not None and 0 <= choice < count else None
-
-    def fallback(self, seat: int, kind: str, reason: str, meta: dict | None = None) -> None:
-        self._event("fallback", seat, f"{kind}: decided by Forge AI ({reason})",
-                    {"kind": kind, "reason": reason, **(meta or {})})
-
-    def play_failed(self, seat: int, ability: str, reason: str) -> None:
-        """A play the seat's client chose that Forge did not carry out: the same
-        priority decision comes next."""
-        self._event("play_failed", seat, f"{ability}: not played ({reason})",
-                    {"ability": ability, "reason": reason})
-
-    def on_ai_decision(self, seat: int, method: str) -> None:
-        self._event("forge_ai", seat, f"{method}: decided by Forge AI", {"method": method})
-        if self._abort.is_set():
-            self._end_game()
-        else:
-            self._past_turn_limit()
 
     # --- internals --------------------------------------------------------------
 
@@ -222,6 +120,8 @@ class GameSession:
             try:
                 jpype.JClass("forge.bridge.GameRandom").bindThisThread(self.seed)
                 self._game = self._create_game()
+                # abort() sets the flag before it reads the switch, and the switch exists
+                # by now: an abort that missed the switch is caught here.
                 if not self._abort.is_set():
                     self._match.startGame(self._game)
                 self._sync_log()
@@ -242,57 +142,32 @@ class GameSession:
         rules.setGamesPerMatch(1)
         registered = J("java.util.ArrayList")()
         registered_player = J("forge.game.player.RegisteredPlayer")
-        for index, seat in enumerate(self.seats):
+        ai_player = J("forge.player.GamePlayerUtil")
+        for seat in self.seats:
             rp = registered_player.forCommander(seat.deck) if self.format.commander else registered_player(seat.deck)
             rp.setStartingLife(self.format.starting_life)
-            rp.setPlayer(self._lobby_player(index, seat))
+            rp.setPlayer(ai_player.createAiPlayer(seat.name, 0, 0, None, "Default"))
             registered.add(rp)
         self._match = J("forge.game.Match")(rules, registered, f"mtg-forge-engine {self.id}")
         game = self._match.createGame()
         self._tracker = J("forge.bridge.EliminationTracker")(game)
         self._turn_cap = J("forge.bridge.TurnLimit")(game, self.turn_limit)
+        self._abort_switch = J("forge.bridge.Abort")(game)
         self._players = list(game.getRegisteredPlayers())
         return game
 
-    def _lobby_player(self, index: int, seat: SeatSpec):
-        if seat.controller == "forge_ai":
-            return jpype.JClass("forge.player.GamePlayerUtil").createAiPlayer(seat.name, 0, 0, None, "Default")
-        from .handler import make_handler
-
-        handler = make_handler(self, index)
-        self.handlers.append(handler)
-        return jpype.JClass("forge.bridge.BridgeLobbyPlayer")(seat.name, handler)
-
     def _release(self) -> None:
-        """Drops the Forge game. A handler (Python) and the game (Java) reference
-        each other through the JVM boundary, which neither collector can see
-        through: without this every ended game stays in the heap."""
+        """Drops the Forge game. The session stays in the registry for GAME_TTL after
+        the game ends: without this the JVM keeps every ended game in its heap until
+        then."""
         if self._game is not None:
             self._final_turn = int(self._game.getPhaseHandler().getTurn())
-        for handler in self.handlers:
-            handler.session = None
         self._game = None
         self._match = None
         self._tracker = None
         self._turn_cap = None
+        self._abort_switch = None
         self._players = []
-
-    def _end_game(self) -> None:
-        game = self._game
-        if game is not None and not game.isGameOver():
-            game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)
-
-    def _past_turn_limit(self) -> bool:
-        game = self._game
-        if game is None:
-            return False
-        if game.isGameOver():
-            return True
-        if game.getPhaseHandler().getTurn() <= self.turn_limit:
-            return False
-        self._turn_limit_hit = True
-        game.setGameOver(jpype.JClass("forge.game.GameEndReason").Draw)
-        return True
 
     def _eliminations(self) -> list[dict]:
         tracker = self._tracker
@@ -306,11 +181,9 @@ class GameSession:
     def _record_outcome(self) -> None:
         self.eliminations = self._eliminations()
         outcome = self._game.getOutcome() if self._game is not None else None
-        if self._orphaned:
-            self.end_reason = "orphaned"
-        elif self._abort.is_set():
+        if self._abort.is_set():
             self.end_reason = "aborted"
-        elif self._turn_limit_hit or (self._turn_cap is not None and self._turn_cap.isHit()):
+        elif self._turn_cap is not None and self._turn_cap.isHit():
             self.end_reason = "turn_limit"
         elif outcome is not None:
             self.end_reason = str(outcome.getWinCondition())

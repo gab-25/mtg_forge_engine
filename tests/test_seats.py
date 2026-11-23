@@ -41,11 +41,10 @@ def test_seat_count_inside_the_format_reaches_forge():
 def session_with(fmt, count, max_turns=50):
     import threading
 
-    from mtg_forge_engine.queue import DecisionQueue
     from mtg_forge_engine.session import GameSession
 
     # Never started: the constructor does not touch Forge.
-    return GameSession("t", FORMATS[fmt], 1, [None] * count, DecisionQueue(1), max_turns, threading.BoundedSemaphore(1))
+    return GameSession("t", FORMATS[fmt], 1, [None] * count, max_turns, threading.BoundedSemaphore(1))
 
 
 def test_turn_limit_counts_rounds_above_two_seats():

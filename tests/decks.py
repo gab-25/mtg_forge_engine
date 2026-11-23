@@ -1,6 +1,5 @@
-"""Decklists the tests play. Chosen so that every exposed decision kind comes up:
-targets (Lightning Bolt, Mogg Fanatic, Giant Growth), modes (Fiery Confluence),
-discard (Faithless Looting), an optional trigger (Bloodghast), blockers (green)."""
+"""Decklists the tests play: a fast red deck against green creatures, so that games
+end in a few turns; Commander lists for duels and pods."""
 
 RED = """
 20 Mountain
